@@ -11,11 +11,11 @@ except ImportError:
     HAS_SSQ = False
 
 # ==========================================
-# 1. 核心分析函式 (SST + 多重脊線偵測)
+# 1. 核心分析函式 (SST + 優化版 Peak Finding)
 # ==========================================
-def perform_multiridge_sst(data, fps, wavelet, nv, y_min, y_max, show_ridge, ridge_thresh_percent):
+def perform_clean_multiridge_sst(data, fps, wavelet, nv, y_min, y_max, show_ridge, ridge_thresh_percent, min_dist):
     """
-    執行 SST 並找出每個時間點的所有諧波峰值 (Local Maxima)
+    執行 SST 並使用優化過的參數找出乾淨的諧波路徑
     """
     st.write(f"➡️ 計算 SST (Wavelet: {wavelet}, Voices: {nv})...")
 
@@ -29,79 +29,80 @@ def perform_multiridge_sst(data, fps, wavelet, nv, y_min, y_max, show_ridge, rid
     # 2. 取能量幅度
     magnitude = np.abs(Tx)
     
-    # 3. 座標轉換 (頻率 -> 週期)
+    # 3. 座標轉換
     with np.errstate(divide='ignore'): 
         periods = 1 / ssq_freqs
     
     # 4. 建立時間軸
     time_axis = np.arange(len(data)) / fps
     
-    # 5. 建立 Plotly 圖表 (底層熱圖)
+    # 5. 建立 Plotly 圖表
     fig = go.Figure()
     
-    # 過濾顯示範圍 (為了讓熱圖顏色更準確，先把範圍外的拿掉)
+    # 過濾顯示範圍
     valid_mask = np.isfinite(periods)
     plot_periods = periods[valid_mask]
     plot_magnitude = magnitude[valid_mask, :]
 
+    # 畫熱圖
     fig.add_trace(go.Heatmap(
         z=plot_magnitude, 
         x=time_axis, 
         y=plot_periods, 
-        colorscale='Jet',
+        colorscale='Jet', # 建議改用 Jet 或 Turbo 對比度較高
         colorbar=dict(title='能量幅度'),
         name='SST 能量譜',
         hovertemplate='時間: %{x:.2f}s<br>週期: %{y:.4f}s<br>能量: %{z:.2f}<extra></extra>'
     ))
 
     # ==========================================
-    # 多重脊線偵測 (Multi-Ridge Detection)
+    # 優化版：多重脊線偵測
     # ==========================================
     if show_ridge:
-        st.caption("正在提取所有諧波路徑...")
+        st.caption("🔍 正在進行特徵提取 (Peak Peaking)...")
         
         ridge_x = []
         ridge_y = []
         
-        # 設定絕對閾值：只抓出能量超過 "最大能量 * 百分比" 的峰值
-        # 這樣可以過濾掉背景雜訊
+        # 1. 設定能量門檻 (過濾背景雜訊)
         global_max_energy = np.max(magnitude)
         abs_threshold = global_max_energy * ridge_thresh_percent
         
-        # 針對每一個時間點 (column) 進行 Peak Finding
+        # 2. 針對每一個時間點掃描
         num_time_steps = magnitude.shape[1]
         
         for t_idx in range(num_time_steps):
-            # 取得當下這一秒的頻譜切片 (1D array)
             spectrum_slice = magnitude[:, t_idx]
             
-            # 使用 scipy.signal.find_peaks 找局部高點
-            # height: 設定最小高度，過濾雜訊
-            peaks, _ = find_peaks(spectrum_slice, height=abs_threshold)
+            # === 關鍵修改在這裡 ===
+            # distance: 設定兩個峰值之間至少要隔多少個 index
+            # 這能避免同一條粗線上出現兩個點，強迫只抓最高點
+            peaks, _ = find_peaks(
+                spectrum_slice, 
+                height=abs_threshold, 
+                distance=min_dist  # <--- 這行是讓線條變乾淨的關鍵
+            )
             
             if len(peaks) > 0:
-                # 找到峰值對應的週期
                 current_periods = periods[peaks]
                 current_time = time_axis[t_idx]
                 
-                # 收集座標用於繪圖
-                # 這裡把同一個時間點的多個頻率都加進去
                 ridge_x.extend([current_time] * len(peaks))
                 ridge_y.extend(current_periods)
 
-        # 畫出所有偵測到的脊線點 (黑點或白點)
+        # 畫出偵測點 (改小一點的白點)
         fig.add_trace(go.Scatter(
             x=ridge_x,
             y=ridge_y,
-            mode='markers', # 使用點模式，因為多條線在數據結構上是不連續的
-            marker=dict(symbol='circle', color='white', size=3, opacity=0.7),
-            name='偵測到的諧波峰值 (Peaks)',
-            hoverinfo='skip' 
+            mode='markers',
+            marker=dict(symbol='circle', color='white', size=2, opacity=0.8), # 點縮小到 size=2
+            name='提取的諧波 (Clean Peaks)',
+            hoverinfo='skip'
         ))
 
     # 6.圖表設定
     fig.update_layout(
-        title=f'SST 多重諧波偵測 (Multi-Ridge)', 
+        title=f'SST 高精度諧波分析', 
         xaxis_title='時間 (秒)', 
         yaxis_title='週期 (秒)', 
         height=700,
@@ -109,14 +110,13 @@ def perform_multiridge_sst(data, fps, wavelet, nv, y_min, y_max, show_ridge, rid
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     
-    # 強制設定 Y 軸顯示範圍
     if y_min > 0 and y_max > 0:
         fig.update_yaxes(range=[np.log10(y_min), np.log10(y_max)])
     
     return fig
 
 # ==========================================
-# 2. 資料讀取函式
+# 2. 資料讀取函式 (不變)
 # ==========================================
 def load_uploaded_npy(uploaded_file):
     try:
@@ -126,20 +126,18 @@ def load_uploaded_npy(uploaded_file):
         elif data.ndim == 2 and data.shape[1] >= 2:
             return data[:, 1].astype(float)
         else:
-            st.error(f"資料格式錯誤：形狀為 {data.shape}")
             return None
-    except Exception as e:
-        st.error(f"讀取檔案失敗: {e}")
+    except:
         return None
 
 # ==========================================
 # 3. Streamlit 介面配置
 # ==========================================
-st.set_page_config(page_title="SST 多諧波分析", layout="wide")
-st.title("📊 SST 多重諧波分析儀表板")
+st.set_page_config(page_title="SST 諧波優化版", layout="wide")
+st.title("📊 SST 諧波分析 (優化抗噪版)")
 
 if not HAS_SSQ:
-    st.warning("⚠️ 未安裝 ssqueezepy。請執行 `pip install ssqueezepy scipy`")
+    st.error("請安裝套件: pip install ssqueezepy scipy")
     st.stop()
 
 with st.sidebar:
@@ -150,17 +148,27 @@ with st.sidebar:
     sst_wavelet = st.selectbox("小波基底", ['morlet', 'bump'], index=0)
     nv = st.select_slider("頻率解析度 (Voices)", options=[16, 32, 64], value=32)
 
-    st.subheader("2. 諧波提取 (Peak Finding)")
-    show_ridge = st.checkbox("顯示諧波峰值點", value=True)
+    st.subheader("2. 諧波提取 (重點調整區)")
+    show_ridge = st.checkbox("顯示提取結果", value=True)
     
-    # 重要參數：閾值
+    # --- [關鍵參數 1] 能量過濾 ---
     ridge_thresh = st.slider(
-        "能量過濾閾值 (%)", 
+        "⚡ 能量過濾門檻 (%)", 
         min_value=1, 
-        max_value=50, 
+        max_value=30, 
         value=5, 
         step=1,
-        help="只有能量強度超過「最大值 x 此百分比」的點才會被標示出來。調高此數值可過濾背景雜訊。"
+        help="數值越大，只有越紅(能量越強)的線才會被標示。若背景雜訊很多，請調大此值。"
+    )
+
+    # --- [關鍵參數 2] 最小間距 ---
+    min_dist = st.slider(
+        "↔️ 最小峰值間距 (Pixel Distance)", 
+        min_value=1, 
+        max_value=50, 
+        value=10, 
+        step=1,
+        help="數值越大，線條越乾淨(不會有重影)，但如果兩條諧波靠太近可能會被合併成一條。建議值 10~20。"
     )
 
     st.subheader("3. 顯示範圍")
@@ -175,13 +183,11 @@ uploaded_file = st.file_uploader("上傳 .npy 數據檔案", type=["npy"])
 
 if uploaded_file is not None:
     signal_data = load_uploaded_npy(uploaded_file)
-    
     if signal_data is not None:
         signal_data = signal_data - np.mean(signal_data)
         st.line_chart(signal_data, height=150)
 
-        # 執行分析
-        fig_sst = perform_multiridge_sst(
+        fig_sst = perform_clean_multiridge_sst(
             data=signal_data, 
             fps=fps, 
             wavelet=sst_wavelet, 
@@ -189,18 +195,15 @@ if uploaded_file is not None:
             y_min=y_axis_min, 
             y_max=y_axis_max,
             show_ridge=show_ridge,
-            ridge_thresh_percent=ridge_thresh/100.0 # 轉為小數
+            ridge_thresh_percent=ridge_thresh/100.0,
+            min_dist=min_dist # 傳入新參數
         )
-        
         st.plotly_chart(fig_sst, use_container_width=True)
         
-        if show_ridge:
-            st.info("""
-            **判讀說明：**
-            圖上的**白點**代表電腦偵測到的能量峰值。
-            - 如果白點太多太雜：請調高左側的「能量過濾閾值」。
-            - 如果諧波沒顯示出來：請調低「能量過濾閾值」。
-            這樣你就可以看到多條平行的諧波軌跡，而不是單一跳動的線。
-            """)
-else:
-    st.info("請上傳檔案開始分析。")
+        st.info(f"""
+        **調校指南：**
+        1. 目前能量過濾門檻：**{ridge_thresh}%** (去除背景雜點)
+        2. 目前最小間距：**{min_dist}** (去除線條重影/變細)
+        - 如果圖上還有藍色區域的雜點 -> **調高** 「能量過濾門檻」。
+        - 如果線條看起來很粗、很多點擠在一起 -> **調高** 「最小峰值間距」。
+        """)
