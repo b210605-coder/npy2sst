@@ -108,37 +108,37 @@ if not HAS_SSQ:
 with st.sidebar:
     st.header("⚙️ 參數設定")
     
-fps = st.number_input("取樣率 (FPS)", value=30.0, min_value=1.0, step=1.0)
+    fps = st.number_input("取樣率 (FPS)", value=30.0, min_value=1.0, step=1.0)
 
-st.subheader("SST 參數")
+    st.subheader("SST 參數")
     # SST 在 ssqueezepy 中主要支援 morlet 和 bump
-sst_wavelet = st.selectbox(
-    "小波選擇 (Wavelet)", 
-    ['morlet', 'bump'], 
-    index=0,
-    help="Morlet 適合一般震盪訊號；Bump 頻率定位性更好但時間解析度稍差。"
-)
+    sst_wavelet = st.selectbox(
+        "小波選擇 (Wavelet)", 
+        ['morlet', 'bump'], 
+        index=0,
+        help="Morlet 適合一般震盪訊號；Bump 頻率定位性更好但時間解析度稍差。"
+    )
 
-# NV (Number of Voices) 取代了 Scales 的概念
-nv = st.number_input(
-    "Voices (每階層級數)", 
-    value=32, 
-    min_value=16, 
-    max_value=64, 
-    step=8,
-    help="��值越高，頻率解析度越細緻，但計算越慢。通常設為 32 或 64。"
-)
+    # NV (Number of Voices) 取代了 Scales 的概念
+    nv = st.number_input(
+        "Voices (每階層級數)", 
+        value=32, 
+        min_value=16, 
+        max_value=64, 
+        step=8,
+        help="��值越高，頻率解析度越細緻，但計算越慢。通常設為 32 或 64。"
+    )
 
 # --- 顯示範圍控制 ---
-st.markdown("**圖表顯示範圍 (週期)**")
-col1, col2 = st.columns(2)
-with col1:
-    y_axis_min = st.number_input("Min (秒)", value=0.1, format="%.2f")
-with col2:
-    y_axis_max = st.number_input("Max (秒)", value=10.0, format="%.1f")
+    st.markdown("**圖表顯示範圍 (週期)**")
+    col1, col2 = st.columns(2)
+    with col1:
+        y_axis_min = st.number_input("Min (秒)", value=0.1, format="%.2f")
+    with col2:
+        y_axis_max = st.number_input("Max (秒)", value=10.0, format="%.1f")
 
-st.divider()
-st.caption("ℹ️ 已移除 0-1 Test 與 GAF 模組，專注於時頻分析。")
+    st.divider()
+    st.caption("ℹ️ 已移除 0-1 Test 與 GAF 模組，專注於時頻分析。")
 
 # --- 主畫面 ---
 uploaded_file = st.file_uploader("上傳 .npy 數據檔案", type=["npy"])
