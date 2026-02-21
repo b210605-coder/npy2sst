@@ -38,7 +38,7 @@ def analyze_sst_and_ridges(
     time_axis = np.arange(len(data)) / fps
     total_duration = time_axis[-1] # 取得總時間長度
     
-    # 3. 準備儲存分層數據 (Dictionary 結構)
+    # 3. 準備儲存分層數據
     harmonic_data = {
         1: {'x': [], 'y': [], 'z': []},
         2: {'x': [], 'y': [], 'z': []},
@@ -117,29 +117,18 @@ def analyze_sst_and_ridges(
         jump_events.append(current_jump_start_time)
 
     # ==========================================
-    # 全白主題字體與 Layout 共用設定
+    # 全白主題 Layout 基礎設定 (移除引發衝突的軸設定)
     # ==========================================
     white_layout_settings = dict(
         template="plotly_white", 
         plot_bgcolor="white",
         paper_bgcolor="white",
-        font=dict(color="black", size=12), # 強制所有基本字體為黑色
-        xaxis=dict(
-            showgrid=True, gridcolor='lightgray',
-            zeroline=True, zerolinecolor='black',
-            linecolor='black', ticks='outside',
-            tickfont=dict(color="black"),
-            titlefont=dict(color="black", size=14)
-        ),
-        yaxis=dict(
-            showgrid=True, gridcolor='lightgray',
-            zeroline=False, linecolor='black',
-            ticks='outside',
-            tickfont=dict(color="black"),
-            titlefont=dict(color="black", size=14)
-        ),
+        font=dict(color="black", size=12), 
         uirevision='constant'
     )
+    
+    # 計算 Y 軸對數顯示範圍
+    y_range = [np.log10(y_min), np.log10(y_max)] if (y_min > 0 and y_max > 0) else None
 
     # ==========================================
     # 5. 繪製圖表 1: SST 熱圖
@@ -151,7 +140,7 @@ def analyze_sst_and_ridges(
 
     fig_sst.add_trace(go.Heatmap(
         z=plot_magnitude, x=time_axis, y=plot_periods, 
-        coloraxis="coloraxis", # 關鍵：使用全域色彩軸
+        coloraxis="coloraxis", 
         name='SST Spectrum'
     ))
 
@@ -160,8 +149,7 @@ def analyze_sst_and_ridges(
 
     fig_sst.update_layout(
         title=dict(text='1. SST 時頻能量熱圖', font=dict(color="black", size=18)),
-        xaxis_title='時間 (s)', yaxis_title='週期 (s)',
-        height=500, yaxis_type="log",
+        height=500,
         coloraxis=dict(
             colorscale='Jet',
             colorbar=dict(
@@ -172,9 +160,21 @@ def analyze_sst_and_ridges(
         **white_layout_settings
     )
     
-    fig_sst.update_xaxes(range=[0, total_duration])
-    if y_min > 0 and y_max > 0:
-        fig_sst.update_yaxes(range=[np.log10(y_min), np.log10(y_max)])
+    # 獨立更新 X 軸與 Y 軸 (解決 ValueError 的核心)
+    fig_sst.update_xaxes(
+        title_text='時間 (s)', title_font=dict(color="black", size=14),
+        showgrid=True, gridcolor='lightgray',
+        zeroline=True, zerolinecolor='black', linecolor='black', 
+        ticks='outside', tickfont=dict(color="black"),
+        range=[0, total_duration]
+    )
+    fig_sst.update_yaxes(
+        title_text='週期 (s)', title_font=dict(color="black", size=14),
+        showgrid=True, gridcolor='lightgray',
+        zeroline=False, linecolor='black',
+        ticks='outside', tickfont=dict(color="black"),
+        type="log", range=y_range
+    )
 
     # ==========================================
     # 6. 繪製圖表 2: 分層諧波脊線圖
@@ -201,7 +201,7 @@ def analyze_sst_and_ridges(
                     symbol=markers.get(k, "circle"),
                     size=6 if k==1 else 5, 
                     color=d['z'],
-                    coloraxis="coloraxis" # 關鍵：不寫死在 k=1，交給全域 Layout
+                    coloraxis="coloraxis"
                 ),
                 hovertemplate=f"<b>{labels[k]}</b><br>Time: %{{x:.2f}}s<br>Period: %{{y:.4f}}s<br>Energy: %{{marker.color:.2f}}<extra></extra>"
             ))
@@ -215,15 +215,11 @@ def analyze_sst_and_ridges(
 
     fig_ridge.update_layout(
         title=dict(text='2. 諧波分類標記 (點擊圖例可開關，畫面不跳動)', font=dict(color="black", size=18)),
-        xaxis_title='時間 (s)', 
-        yaxis_title='週期 (s)',
         height=500, 
-        yaxis_type="log",
         legend=dict(
             orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
-            bgcolor="rgba(255,255,255,0.8)", font=dict(color="black") # 圖例字體也設黑色
+            bgcolor="rgba(255,255,255,0.8)", font=dict(color="black")
         ),
-        # 設定獨立的 Colorbar，即使 Trace 隱藏也不會消失
         coloraxis=dict(
             colorscale='Jet',
             cmin=cmin, cmax=cmax,
@@ -235,9 +231,21 @@ def analyze_sst_and_ridges(
         **white_layout_settings
     )
     
-    fig_ridge.update_xaxes(range=[0, total_duration], autorange=False)
-    if y_min > 0 and y_max > 0:
-        fig_ridge.update_yaxes(range=[np.log10(y_min), np.log10(y_max)], autorange=False)
+    # 獨立更新 X 軸與 Y 軸
+    fig_ridge.update_xaxes(
+        title_text='時間 (s)', title_font=dict(color="black", size=14),
+        showgrid=True, gridcolor='lightgray',
+        zeroline=True, zerolinecolor='black', linecolor='black', 
+        ticks='outside', tickfont=dict(color="black"),
+        range=[0, total_duration], autorange=False
+    )
+    fig_ridge.update_yaxes(
+        title_text='週期 (s)', title_font=dict(color="black", size=14),
+        showgrid=True, gridcolor='lightgray',
+        zeroline=False, linecolor='black',
+        ticks='outside', tickfont=dict(color="black"),
+        type="log", range=y_range, autorange=False
+    )
 
     return fig_sst, fig_ridge, jump_events
 
@@ -305,7 +313,6 @@ if uploaded_file is not None:
             jump_duration_sec=jump_dur
         )
         
-        # 關鍵修改：加上 theme=None，強制 Streamlit 不要覆蓋我們的白色主題！
         st.plotly_chart(fig1, use_container_width=True, theme=None)
         st.plotly_chart(fig2, use_container_width=True, theme=None)
         
