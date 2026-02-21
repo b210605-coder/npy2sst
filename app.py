@@ -307,11 +307,48 @@ uploaded_file = st.file_uploader("上傳 .npy 數據檔案", type=["npy"])
 if uploaded_file is not None:
     signal_data = load_uploaded_npy(uploaded_file)
     if signal_data is not None:
+        # 去除直流分量
         signal_data = signal_data - np.mean(signal_data)
         
-        st.subheader("原始訊號")
-        st.line_chart(signal_data[:1000] if len(signal_data)>1000 else signal_data, height=120)
+        # ---------------------------------------------------------
+        # ★ 修正：使用 Plotly 繪製完整的原始訊號，並換算成秒數
+        # ---------------------------------------------------------
+        time_axis_orig = np.arange(len(signal_data)) / fps # 計算真實秒數
+        
+        fig_orig = go.Figure()
+        fig_orig.add_trace(go.Scatter(
+            x=time_axis_orig, 
+            y=signal_data, 
+            mode='lines', 
+            name='Original Signal',
+            line=dict(color='royalblue', width=1)
+        ))
+        
+        fig_orig.update_layout(
+            title=dict(text='原始訊號 (去除直流分量)', font=dict(color="black", size=16)),
+            xaxis_title='時間 (s)',
+            yaxis_title='振幅',
+            height=250,
+            margin=dict(l=0, r=0, t=40, b=0),
+            template="plotly_white",
+            plot_bgcolor="white",
+            paper_bgcolor="white"
+        )
+        
+        # 套用黑色字體與座標軸設定
+        fig_orig.update_xaxes(
+            title_font=dict(color="black", size=12), tickfont=dict(color="black"),
+            showgrid=True, gridcolor='lightgray', linecolor='black'
+        )
+        fig_orig.update_yaxes(
+            title_font=dict(color="black", size=12), tickfont=dict(color="black"),
+            showgrid=True, gridcolor='lightgray', linecolor='black'
+        )
 
+        st.plotly_chart(fig_orig, use_container_width=True, theme=None)
+        # ---------------------------------------------------------
+
+        # 執行 SST 分析
         fig1, fig2, jumps = analyze_sst_and_ridges(
             data=signal_data, 
             fps=fps, 
