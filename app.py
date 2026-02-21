@@ -152,11 +152,11 @@ def analyze_sst_and_ridges(
     # ==========================================
     # Journal-Quality Layout Base Settings
     # ==========================================
-    # 採用標準的白底、黑框、無網格線，並統一使用 Arial 字體
+    # 放寬邊界限制，讓 Plotly 自動處理左右邊距（避免 colorbar 或圖例擠成一團）
     journal_layout = dict(
         template="simple_white", 
         font=dict(family="Arial", color="black", size=14),
-        margin=dict(l=60, r=20, t=50, b=50),
+        margin=dict(t=80, b=50), # 只設定上方留 80px 給標題/圖例，左右交給系統自動適應
         uirevision='constant'
     )
     
@@ -180,20 +180,20 @@ def analyze_sst_and_ridges(
         coloraxis="coloraxis", name='SSWT Spectrum'
     ))
 
-    # Only mark the FIRST jump
     if len(jump_events) > 0:
         first_jump = jump_events[0]
         fig_sst.add_vline(x=first_jump, line_width=2, line_dash="dash", line_color="white", opacity=0.8)
 
     fig_sst.update_layout(
-        title=dict(text='(b) SSWT Energy Heatmap', font=dict(family="Arial", size=18, color="black"), x=0.01, y=0.98),
-        height=450,
+        title=dict(text='(b) SSWT Energy Heatmap', font=dict(family="Arial", size=18, color="black"), x=0, y=1.05, xanchor="left"),
+        height=500,
         coloraxis=dict(
-            colorscale='Viridis', # 換成學術界接受的 Viridis 色系
+            colorscale='Viridis', 
             colorbar=dict(
                 title=dict(text='Energy', font=dict(family="Arial", size=14, color="black")),
                 tickfont=dict(family="Arial", size=12, color="black"),
-                outlinewidth=1, outlinecolor="black" # 為 colorbar 加上黑框
+                outlinewidth=1, outlinecolor="black",
+                thickness=20 # 設定 colorbar 厚度，避免佔用太多圖表空間
             )
         ),
         **journal_layout
@@ -222,12 +222,11 @@ def analyze_sst_and_ridges(
                     size=6 if k==1 else 5, 
                     color=d['z'], 
                     coloraxis="coloraxis",
-                    line=dict(width=0.5, color='black') if k==1 else None # 第一諧波加上極細黑框增加清晰度
+                    line=dict(width=0.5, color='black') if k==1 else None
                 ),
                 hovertemplate=f"<b>{labels[k]}</b><br>Time: %{{x:.2f}}s<br>Period: %{{y:.4f}}s<br>Energy: %{{marker.color:.2f}}<extra></extra>"
             ))
 
-    # Clean & professional marker for the Min Period point
     if stats['base_min_t'] is not None:
         fig_ridge.add_trace(go.Scatter(
             x=[stats['base_min_t']], y=[stats['base_min_p']],
@@ -242,7 +241,6 @@ def analyze_sst_and_ridges(
             ax=0, ay=35, font=dict(family="Arial", color="crimson", size=13)
         )
 
-    # Only mark the FIRST jump on the ridge plot
     if len(jump_events) > 0:
         first_jump = jump_events[0]
         fig_ridge.add_vline(x=first_jump, line_width=1.5, line_dash="dash", line_color="crimson")
@@ -253,11 +251,11 @@ def analyze_sst_and_ridges(
         )
 
     fig_ridge.update_layout(
-        title=dict(text='(c) SSWT Ridge Extraction', font=dict(family="Arial", size=18, color="black"), x=0.01, y=0.98),
-        height=450, 
+        title=dict(text='(c) SSWT Ridge Extraction', font=dict(family="Arial", size=18, color="black"), x=0, y=1.05, xanchor="left"),
+        height=500, 
         legend=dict(
             orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, 
-            bgcolor="white", bordercolor="black", borderwidth=1, # 圖例加上黑框
+            bgcolor="white", bordercolor="black", borderwidth=1,
             font=dict(family="Arial", size=12, color="black")
         ),
         coloraxis=dict(
@@ -265,7 +263,8 @@ def analyze_sst_and_ridges(
             colorbar=dict(
                 title=dict(text='Energy', font=dict(family="Arial", size=14, color="black")), 
                 tickfont=dict(family="Arial", size=12, color="black"),
-                outlinewidth=1, outlinecolor="black" # 為 colorbar 加上黑框
+                outlinewidth=1, outlinecolor="black",
+                thickness=20
             )
         ),
         **journal_layout
@@ -341,9 +340,9 @@ if uploaded_file is not None:
         )
 
         fig_orig.update_layout(
-            title=dict(text='(a) Original Signal', font=dict(family="Arial", size=18, color="black"), x=0.01, y=0.9),
+            title=dict(text='(a) Original Signal', font=dict(family="Arial", size=18, color="black"), x=0, y=1.05, xanchor="left"),
             height=250, 
-            margin=dict(l=60, r=20, t=40, b=50), 
+            margin=dict(t=60, b=50), # 移除左右邊距限制，避免跑版
             template="simple_white"
         )
         fig_orig.update_xaxes(title_text='Time (s)', title_font=dict(family="Arial", size=16, weight="bold", color="black"), tickfont=dict(family="Arial", size=14, color="black"), **journal_axis_settings)
