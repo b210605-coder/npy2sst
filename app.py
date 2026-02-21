@@ -11,7 +11,7 @@ except ImportError:
     HAS_SSQ = False
 
 # ==========================================
-# Core Analysis Function (SST + Period Anchoring + Extrema Tracking)
+# Core Analysis Function (SSWT + Period Anchoring + Extrema Tracking)
 # ==========================================
 def analyze_sst_and_ridges(
     data, fps, wavelet, nv, y_min, y_max, 
@@ -20,12 +20,12 @@ def analyze_sst_and_ridges(
     jump_duration_sec,
     jump_ratio 
 ):
-    st.write(f"🔄 Computing SST (Wavelet: {wavelet}, Voices: {nv})...")
+    st.write(f"🔄 Computing SSWT (Wavelet: {wavelet}, Voices: {nv})...")
 
     try:
         Tx, Wx, ssq_freqs, scales = ssq_cwt(data, wavelet=wavelet, fs=fps, nv=nv)
     except Exception as e:
-        st.error(f"SST Computation Error: {e}")
+        st.error(f"SSWT Computation Error: {e}")
         return go.Figure(), go.Figure(), [], {}
 
     magnitude = np.abs(Tx)
@@ -75,8 +75,7 @@ def analyze_sst_and_ridges(
             final_energies = peak_energies[keep_indices]
 
             # ==========================================
-            # Ultimate Anchoring Logic: 
-            # 1st Harmonic (Fundamental) = the point with the longest period (highest Y value)!
+            # Anchoring Logic: 1st Harmonic = Longest Period
             # ==========================================
             base_idx = np.argmax(final_periods) 
             T_base = final_periods[base_idx]
@@ -120,7 +119,6 @@ def analyze_sst_and_ridges(
                 is_jumping = False
                 consecutive_frames = 0
         else:
-            # If no peaks are found, reset jump state
             if is_jumping and consecutive_frames >= required_frames:
                 jump_events.append(current_jump_start_time)
             is_jumping = False
@@ -161,19 +159,21 @@ def analyze_sst_and_ridges(
     y_range = [np.log10(y_min), np.log10(y_max)] if (y_min > 0 and y_max > 0) else None
 
     # ==========================================
-    # 5. Plot 1: SST Heatmap
+    # 5. Plot 1: SSWT Heatmap
     # ==========================================
     fig_sst = go.Figure()
     plot_periods = periods[valid_period_mask]
     plot_magnitude = magnitude[valid_period_mask, :]
 
-    fig_sst.add_trace(go.Heatmap(z=plot_magnitude, x=time_axis, y=plot_periods, coloraxis="coloraxis", name='SST Spectrum'))
+    fig_sst.add_trace(go.Heatmap(z=plot_magnitude, x=time_axis, y=plot_periods, coloraxis="coloraxis", name='SSWT Spectrum'))
 
-    for jump_t in jump_events:
-        fig_sst.add_vline(x=jump_t, line_width=2, line_dash="dash", line_color="white", opacity=0.8)
+    # Only mark the FIRST jump
+    if len(jump_events) > 0:
+        first_jump = jump_events[0]
+        fig_sst.add_vline(x=first_jump, line_width=2, line_dash="dash", line_color="white", opacity=0.8)
 
     fig_sst.update_layout(
-        title=dict(text='1. SST Time-Frequency Energy Heatmap', font=dict(color="black", size=18)),
+        title=dict(text='1. SSWT Energy Heatmap', font=dict(color="black", size=18)),
         height=500,
         coloraxis=dict(colorscale='Jet', colorbar=dict(title=dict(text='Energy', font=dict(color="black")), tickfont=dict(color="black"))),
         **white_layout_settings
@@ -182,7 +182,7 @@ def analyze_sst_and_ridges(
     fig_sst.update_yaxes(title_text='Period (s)', title_font=dict(color="black", size=14), showgrid=True, gridcolor='lightgray', zeroline=False, linecolor='black', ticks='outside', tickfont=dict(color="black"), type="log", range=y_range)
 
     # ==========================================
-    # 6. Plot 2: Layered Harmonic Ridge Plot
+    # 6. Plot 2: SSWT Ridge Extraction
     # ==========================================
     fig_ridge = go.Figure()
     labels = {1: "1st Harmonic (Fundamental)", 2: "2nd Harmonic", 3: "3rd Harmonic", 0: "Others"}
@@ -201,27 +201,33 @@ def analyze_sst_and_ridges(
                 hovertemplate=f"<b>{labels[k]}</b><br>Time: %{{x:.2f}}s<br>Period: %{{y:.4f}}s<br>Energy: %{{marker.color:.2f}}<extra></extra>"
             ))
 
-    # ★ Mark lowest fundamental period point (Star icon)
+    # ★ Clean & professional marker for the Min Period point
     if stats['base_min_t'] is not None:
         fig_ridge.add_trace(go.Scatter(
             x=[stats['base_min_t']], y=[stats['base_min_p']],
             mode='markers', name='Min Period Point',
-            marker=dict(symbol='star', size=18, color='magenta', line=dict(width=2, color='black')),
+            marker=dict(symbol='circle', size=14, color='crimson', line=dict(width=2, color='black')),
             hovertemplate="<b>Min Fundamental Period</b><br>Time: %{x:.2f}s<br>Period: %{y:.4f}s<extra></extra>"
         ))
         
         fig_ridge.add_annotation(
             x=stats['base_min_t'], y=np.log10(stats['base_min_p']),
-            text="Min Period", showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=2, arrowcolor="magenta",
-            ax=0, ay=35, font=dict(color="magenta", size=14, weight="bold")
+            text="Min Period", showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=2, arrowcolor="crimson",
+            ax=0, ay=35, font=dict(color="crimson", size=13, weight="bold")
         )
 
-    for i, jump_t in enumerate(jump_events):
-        fig_ridge.add_vline(x=jump_t, line_width=2, line_dash="dash", line_color="red")
-        fig_ridge.add_annotation(x=jump_t, y=np.log10(y_max) if y_max>0 else 0, text=f"Jump {i+1}", showarrow=False, yshift=10, font=dict(color="red", size=12))
+    # Only mark the FIRST jump on the ridge plot
+    if len(jump_events) > 0:
+        first_jump = jump_events[0]
+        fig_ridge.add_vline(x=first_jump, line_width=2, line_dash="dash", line_color="red")
+        fig_ridge.add_annotation(
+            x=first_jump, y=np.log10(y_max) if y_max > 0 else 0, 
+            text="First Jump", showarrow=False, yshift=10, 
+            font=dict(color="red", size=12)
+        )
 
     fig_ridge.update_layout(
-        title=dict(text='2. Harmonic Classification (Physical Period Anchoring)', font=dict(color="black", size=18)),
+        title=dict(text='2. SSWT Ridge Extraction', font=dict(color="black", size=18)),
         height=500, 
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor="rgba(255,255,255,0.8)", font=dict(color="black")),
         coloraxis=dict(colorscale='Jet', cmin=cmin, cmax=cmax, colorbar=dict(title=dict(text='Energy', font=dict(color="black")), tickfont=dict(color="black"))),
@@ -236,8 +242,8 @@ def analyze_sst_and_ridges(
 # ==========================================
 # 3. Streamlit Interface
 # ==========================================
-st.set_page_config(page_title="SST Harmonic Analysis Pro", layout="wide")
-st.title("📊 SST Harmonic Analysis Pro (Extrema Tracking)")
+st.set_page_config(page_title="SSWT Ridge Extraction", layout="wide")
+st.title("📊 SSWT Ridge Extraction")
 
 if not HAS_SSQ:
     st.error("Please install required packages first: pip install ssqueezepy scipy plotly")
@@ -248,24 +254,24 @@ with st.sidebar:
     st.header("⚙️ Parameter Settings")
     fps = st.number_input("Sampling Rate (FPS)", value=30.0, min_value=1.0)
     
-    with st.expander("1. Basic SST Parameters", expanded=False):
+    with st.expander("1. Basic SSWT Parameters", expanded=False):
         sst_wavelet = st.selectbox("Wavelet Basis", ['morlet', 'bump'], index=0)
         nv = st.select_slider("Frequency Resolution (Voices)", options=[16, 32, 64], value=32)
 
-    st.subheader("2. Display Range (★ Crucial)")
-    st.caption("The program only searches for the fundamental frequency in this range!")
+    st.subheader("2. Display Range")
+    st.caption("The algorithm limits fundamental frequency search to this range.")
     c1, c2 = st.columns(2)
     y_axis_min = c1.number_input("Min Period (s)", value=0.1)
     y_axis_max = c2.number_input("Max Period (s)", value=10.0)
 
-    st.subheader("3. Ridge Extraction (Denoising)")
+    st.subheader("3. Ridge Extraction")
     ridge_thresh = st.slider("⚡ Energy Filter Threshold (%)", 1, 40, 5)
     min_dist = st.slider("↔️ Min Peak Distance (px)", 1, 50, 15)
-    top_k = st.slider("🔝 Keep Top K Peaks per Time Step", 1, 10, 5)
+    top_k = st.slider("🔝 Keep Top K Peaks", 1, 10, 5)
 
     st.subheader("4. Harmonic Jump Detection")
     jump_dur = st.number_input("⏱️ Trigger Duration (s)", value=0.1, step=0.05, min_value=0.0)
-    jump_multiplier = st.slider("🚀 Jump Energy Threshold (E3 > E2 by multiple)", 1.0, 3.0, 1.0, 0.1, help="Increase this to filter out weak false positives.")
+    jump_multiplier = st.slider("🚀 Jump Energy Threshold (E3 > E2 multiplier)", 1.0, 3.0, 1.0, 0.1)
 
 # --- Main Program ---
 def load_uploaded_npy(uploaded_file):
@@ -310,7 +316,7 @@ if uploaded_file is not None:
         with c1:
             if stats['base_min_t'] is not None:
                 st.info(
-                    f"🌟 **Lowest Fundamental Period (Bottom of Screen / Highest Frequency)**\n\n"
+                    f"🔴 **Lowest Fundamental Period**\n\n"
                     f"⏱️ Time: **{stats['base_min_t']:.2f} s**\n\n"
                     f"📉 Min Period: **{stats['base_min_p']:.4f} s** (~ {1/stats['base_min_p']:.2f} Hz)"
                 )
@@ -320,13 +326,13 @@ if uploaded_file is not None:
         with c2:
             if stats['base_max_t'] is not None:
                 st.success(
-                    f"📈 **Highest Fundamental Period (Top of Screen / Lowest Frequency)**\n\n"
+                    f"📈 **Highest Fundamental Period**\n\n"
                     f"⏱️ Time: **{stats['base_max_t']:.2f} s**\n\n"
                     f"📈 Max Period: **{stats['base_max_p']:.4f} s** (~ {1/stats['base_max_p']:.2f} Hz)"
                 )
 
         if jumps:
-            st.warning(f"🚀 **Detected {len(jumps)} Harmonic Jump(s) (3rd > 2nd)**\n\n" + 
-                       "Time of occurrence (s): " + ", ".join([f"{t:.2f}" for t in jumps]))
+            st.warning(f"🚀 **First Harmonic Jump Detected (3rd > 2nd)** at **{jumps[0]:.2f} s**\n\n" + 
+                       f"Total jumps detected in sequence: {len(jumps)}")
         else:
             st.markdown("No qualifying harmonic jumps detected.")
