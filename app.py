@@ -153,9 +153,11 @@ def analyze_sst_and_ridges(
     # Journal-Quality Layout Base Settings
     # ==========================================
     journal_layout = dict(
-        template="simple_white", 
+        template="plotly_white",  # 使用標準白底樣板
+        plot_bgcolor="white",     # 強制繪圖區純白
+        paper_bgcolor="white",    # 強制畫布外圍純白
         font=dict(family="Arial", color="black", size=14),
-        margin=dict(t=70, b=50), # 移除左右固定限制，上方留 70px 給標題和圖例
+        margin=dict(t=70, b=50),  # 上方留 70px 給標題和圖例
         uirevision='constant'
     )
     
@@ -184,7 +186,7 @@ def analyze_sst_and_ridges(
         fig_sst.add_vline(x=first_jump, line_width=2, line_dash="dash", line_color="white", opacity=0.8)
 
     fig_sst.update_layout(
-        title=dict(text='(b) SSWT Energy Heatmap', font=dict(family="Arial", size=18, color="black"), x=0, xanchor="left"), # 移除 y=1.05
+        title=dict(text='(b) SSWT Energy Heatmap', font=dict(family="Arial", size=18, color="black"), x=0, xanchor="left"), 
         height=500,
         coloraxis=dict(
             colorscale='Viridis', 
@@ -250,7 +252,7 @@ def analyze_sst_and_ridges(
         )
 
     fig_ridge.update_layout(
-        title=dict(text='(c) SSWT Ridge Extraction', font=dict(family="Arial", size=18, color="black"), x=0, xanchor="left"), # 移除 y=1.05
+        title=dict(text='(c) SSWT Ridge Extraction', font=dict(family="Arial", size=18, color="black"), x=0, xanchor="left"), 
         height=500, 
         legend=dict(
             orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, 
@@ -339,10 +341,13 @@ if uploaded_file is not None:
         )
 
         fig_orig.update_layout(
-            title=dict(text='(a) Original Signal', font=dict(family="Arial", size=18, color="black"), x=0, xanchor="left"), # 移除 y=1.05
+            title=dict(text='(a) Original Signal', font=dict(family="Arial", size=18, color="black"), x=0, xanchor="left"), 
             height=250, 
-            margin=dict(t=60, b=50), # 移除左右邊距限制，避免跑版
-            template="simple_white"
+            margin=dict(t=60, b=50), 
+            template="plotly_white",        # 替換為 plotly_white
+            plot_bgcolor="white",           # 強制內部白底
+            paper_bgcolor="white",          # 強制外部白底
+            font=dict(family="Arial", color="black", size=14)
         )
         fig_orig.update_xaxes(title_text='Time (s)', title_font=dict(family="Arial", size=16, weight="bold", color="black"), tickfont=dict(family="Arial", size=14, color="black"), **journal_axis_settings)
         fig_orig.update_yaxes(title_text='Amplitude', title_font=dict(family="Arial", size=16, weight="bold", color="black"), tickfont=dict(family="Arial", size=14, color="black"), **journal_axis_settings)
