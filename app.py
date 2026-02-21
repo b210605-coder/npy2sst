@@ -150,22 +150,35 @@ def analyze_sst_and_ridges(
         stats['base_max_p'] = y_array[max_idx]
 
     # ==========================================
-    # White Theme Layout Base Settings
+    # Journal-Quality Layout Base Settings
     # ==========================================
-    white_layout_settings = dict(
-        template="plotly_white", plot_bgcolor="white", paper_bgcolor="white",
-        font=dict(color="black", size=12), uirevision='constant'
+    # 採用標準的白底、黑框、無網格線，並統一使用 Arial 字體
+    journal_layout = dict(
+        template="simple_white", 
+        font=dict(family="Arial", color="black", size=14),
+        margin=dict(l=60, r=20, t=50, b=50),
+        uirevision='constant'
     )
+    
+    axis_settings = dict(
+        showline=True, linecolor='black', linewidth=1.5,
+        mirror=True, ticks='inside', tickcolor='black', tickwidth=1.5, ticklen=6,
+        showgrid=False, zeroline=False
+    )
+
     y_range = [np.log10(y_min), np.log10(y_max)] if (y_min > 0 and y_max > 0) else None
 
     # ==========================================
-    # 5. Plot 1: SSWT Heatmap
+    # 5. Plot 1: SSWT Heatmap (Journal Style)
     # ==========================================
     fig_sst = go.Figure()
     plot_periods = periods[valid_period_mask]
     plot_magnitude = magnitude[valid_period_mask, :]
 
-    fig_sst.add_trace(go.Heatmap(z=plot_magnitude, x=time_axis, y=plot_periods, coloraxis="coloraxis", name='SSWT Spectrum'))
+    fig_sst.add_trace(go.Heatmap(
+        z=plot_magnitude, x=time_axis, y=plot_periods, 
+        coloraxis="coloraxis", name='SSWT Spectrum'
+    ))
 
     # Only mark the FIRST jump
     if len(jump_events) > 0:
@@ -173,19 +186,26 @@ def analyze_sst_and_ridges(
         fig_sst.add_vline(x=first_jump, line_width=2, line_dash="dash", line_color="white", opacity=0.8)
 
     fig_sst.update_layout(
-        title=dict(text='SSWT Energy Heatmap', font=dict(color="black", size=18)), # 數字移除了
-        height=500,
-        coloraxis=dict(colorscale='Jet', colorbar=dict(title=dict(text='Energy', font=dict(color="black")), tickfont=dict(color="black"))),
-        **white_layout_settings
+        title=dict(text='(b) SSWT Energy Heatmap', font=dict(family="Arial", size=18, color="black"), x=0.01, y=0.98),
+        height=450,
+        coloraxis=dict(
+            colorscale='Viridis', # 換成學術界接受的 Viridis 色系
+            colorbar=dict(
+                title=dict(text='Energy', font=dict(family="Arial", size=14, color="black")),
+                tickfont=dict(family="Arial", size=12, color="black"),
+                outlinewidth=1, outlinecolor="black" # 為 colorbar 加上黑框
+            )
+        ),
+        **journal_layout
     )
-    fig_sst.update_xaxes(title_text='Time (s)', title_font=dict(color="black", size=14), showgrid=True, gridcolor='lightgray', zeroline=True, zerolinecolor='black', linecolor='black', ticks='outside', tickfont=dict(color="black"), range=[0, total_duration])
-    fig_sst.update_yaxes(title_text='Period (s)', title_font=dict(color="black", size=14), showgrid=True, gridcolor='lightgray', zeroline=False, linecolor='black', ticks='outside', tickfont=dict(color="black"), type="log", range=y_range)
+    fig_sst.update_xaxes(title_text='Time (s)', title_font=dict(size=16, weight="bold"), range=[0, total_duration], **axis_settings)
+    fig_sst.update_yaxes(title_text='Period (s)', title_font=dict(size=16, weight="bold"), type="log", range=y_range, **axis_settings)
 
     # ==========================================
-    # 6. Plot 2: SSWT Ridge Extraction
+    # 6. Plot 2: SSWT Ridge Extraction (Journal Style)
     # ==========================================
     fig_ridge = go.Figure()
-    labels = {1: "1st Harmonic (Fundamental)", 2: "2nd Harmonic", 3: "3rd Harmonic", 0: "Others"}
+    labels = {1: "1st Harmonic", 2: "2nd Harmonic", 3: "3rd Harmonic", 0: "Others"}
     markers = {1: "circle", 2: "diamond", 3: "cross", 0: "x"} 
     
     all_z = []
@@ -197,45 +217,62 @@ def analyze_sst_and_ridges(
         if len(d['x']) > 0:
             fig_ridge.add_trace(go.Scatter(
                 x=d['x'], y=d['y'], mode='markers', name=labels[k],
-                marker=dict(symbol=markers.get(k, "circle"), size=6 if k==1 else 5, color=d['z'], coloraxis="coloraxis"),
+                marker=dict(
+                    symbol=markers.get(k, "circle"), 
+                    size=6 if k==1 else 5, 
+                    color=d['z'], 
+                    coloraxis="coloraxis",
+                    line=dict(width=0.5, color='black') if k==1 else None # 第一諧波加上極細黑框增加清晰度
+                ),
                 hovertemplate=f"<b>{labels[k]}</b><br>Time: %{{x:.2f}}s<br>Period: %{{y:.4f}}s<br>Energy: %{{marker.color:.2f}}<extra></extra>"
             ))
 
-    # ★ Clean & professional marker for the Min Period point
+    # Clean & professional marker for the Min Period point
     if stats['base_min_t'] is not None:
         fig_ridge.add_trace(go.Scatter(
             x=[stats['base_min_t']], y=[stats['base_min_p']],
             mode='markers', name='Min Period Point',
-            marker=dict(symbol='circle', size=14, color='crimson', line=dict(width=2, color='black')),
+            marker=dict(symbol='circle-open', size=12, line=dict(width=2.5, color='crimson')),
             hovertemplate="<b>Min Fundamental Period</b><br>Time: %{x:.2f}s<br>Period: %{y:.4f}s<extra></extra>"
         ))
         
         fig_ridge.add_annotation(
             x=stats['base_min_t'], y=np.log10(stats['base_min_p']),
-            text="Min Period", showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=2, arrowcolor="crimson",
-            ax=0, ay=35, font=dict(color="crimson", size=13, weight="bold")
+            text="Min Period", showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1.5, arrowcolor="crimson",
+            ax=0, ay=35, font=dict(family="Arial", color="crimson", size=13)
         )
 
     # Only mark the FIRST jump on the ridge plot
     if len(jump_events) > 0:
         first_jump = jump_events[0]
-        fig_ridge.add_vline(x=first_jump, line_width=2, line_dash="dash", line_color="red")
+        fig_ridge.add_vline(x=first_jump, line_width=1.5, line_dash="dash", line_color="crimson")
         fig_ridge.add_annotation(
             x=first_jump, y=np.log10(y_max) if y_max > 0 else 0, 
-            text="First Jump", showarrow=False, yshift=10, 
-            font=dict(color="red", size=12)
+            text="First Jump", showarrow=False, yshift=15, 
+            font=dict(family="Arial", color="crimson", size=12)
         )
 
     fig_ridge.update_layout(
-        title=dict(text='SSWT Ridge Extraction', font=dict(color="black", size=18)), # 數字移除了
-        height=500, 
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor="rgba(255,255,255,0.8)", font=dict(color="black")),
-        coloraxis=dict(colorscale='Jet', cmin=cmin, cmax=cmax, colorbar=dict(title=dict(text='Energy', font=dict(color="black")), tickfont=dict(color="black"))),
-        **white_layout_settings
+        title=dict(text='(c) SSWT Ridge Extraction', font=dict(family="Arial", size=18, color="black"), x=0.01, y=0.98),
+        height=450, 
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, 
+            bgcolor="white", bordercolor="black", borderwidth=1, # 圖例加上黑框
+            font=dict(family="Arial", size=12, color="black")
+        ),
+        coloraxis=dict(
+            colorscale='Viridis', cmin=cmin, cmax=cmax, 
+            colorbar=dict(
+                title=dict(text='Energy', font=dict(family="Arial", size=14, color="black")), 
+                tickfont=dict(family="Arial", size=12, color="black"),
+                outlinewidth=1, outlinecolor="black" # 為 colorbar 加上黑框
+            )
+        ),
+        **journal_layout
     )
     
-    fig_ridge.update_xaxes(title_text='Time (s)', title_font=dict(color="black", size=14), showgrid=True, gridcolor='lightgray', zeroline=True, zerolinecolor='black', linecolor='black', ticks='outside', tickfont=dict(color="black"), range=[0, total_duration], autorange=False)
-    fig_ridge.update_yaxes(title_text='Period (s)', title_font=dict(color="black", size=14), showgrid=True, gridcolor='lightgray', zeroline=False, linecolor='black', ticks='outside', tickfont=dict(color="black"), type="log", range=y_range, autorange=False)
+    fig_ridge.update_xaxes(title_text='Time (s)', title_font=dict(size=16, weight="bold"), range=[0, total_duration], autorange=False, **axis_settings)
+    fig_ridge.update_yaxes(title_text='Period (s)', title_font=dict(size=16, weight="bold"), type="log", range=y_range, autorange=False, **axis_settings)
 
     return fig_sst, fig_ridge, jump_events, stats
 
@@ -243,7 +280,7 @@ def analyze_sst_and_ridges(
 # 3. Streamlit Interface
 # ==========================================
 st.set_page_config(page_title="SSWT Ridge Extraction", layout="wide")
-st.title("📊 SSWT Ridge Extraction")
+st.title("📊 SSWT Ridge Extraction (Journal Quality)")
 
 if not HAS_SSQ:
     st.error("Please install required packages first: pip install ssqueezepy scipy plotly")
@@ -289,13 +326,29 @@ if uploaded_file is not None:
     if signal_data is not None:
         signal_data = signal_data - np.mean(signal_data)
         
-        # Plot full original signal
+        # Plot full original signal (Journal Style)
         time_axis_orig = np.arange(len(signal_data)) / fps 
         fig_orig = go.Figure()
-        fig_orig.add_trace(go.Scatter(x=time_axis_orig, y=signal_data, mode='lines', name='Original Signal', line=dict(color='royalblue', width=1)))
-        fig_orig.update_layout(title=dict(text='Original Signal (DC offset removed)', font=dict(color="black", size=16)), xaxis_title='Time (s)', yaxis_title='Amplitude', height=250, margin=dict(l=0, r=0, t=40, b=0), template="plotly_white", plot_bgcolor="white", paper_bgcolor="white")
-        fig_orig.update_xaxes(title_font=dict(color="black", size=12), tickfont=dict(color="black"), showgrid=True, gridcolor='lightgray', linecolor='black')
-        fig_orig.update_yaxes(title_font=dict(color="black", size=12), tickfont=dict(color="black"), showgrid=True, gridcolor='lightgray', linecolor='black')
+        fig_orig.add_trace(go.Scatter(
+            x=time_axis_orig, y=signal_data, mode='lines', 
+            name='Original Signal', line=dict(color='#1f77b4', width=1.5)
+        ))
+        
+        journal_axis_settings = dict(
+            showline=True, linecolor='black', linewidth=1.5,
+            mirror=True, ticks='inside', tickcolor='black', tickwidth=1.5, ticklen=6,
+            showgrid=False, zeroline=False
+        )
+
+        fig_orig.update_layout(
+            title=dict(text='(a) Original Signal', font=dict(family="Arial", size=18, color="black"), x=0.01, y=0.9),
+            height=250, 
+            margin=dict(l=60, r=20, t=40, b=50), 
+            template="simple_white"
+        )
+        fig_orig.update_xaxes(title_text='Time (s)', title_font=dict(family="Arial", size=16, weight="bold", color="black"), tickfont=dict(family="Arial", size=14, color="black"), **journal_axis_settings)
+        fig_orig.update_yaxes(title_text='Amplitude', title_font=dict(family="Arial", size=16, weight="bold", color="black"), tickfont=dict(family="Arial", size=14, color="black"), **journal_axis_settings)
+        
         st.plotly_chart(fig_orig, use_container_width=True, theme=None)
 
         # Get analysis results
