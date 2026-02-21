@@ -36,7 +36,7 @@ def analyze_sst_and_ridges(
     with np.errstate(divide='ignore'): 
         periods = 1 / ssq_freqs
     time_axis = np.arange(len(data)) / fps
-    total_duration = time_axis[-1] # 取得總時間長度
+    total_duration = time_axis[-1]
     
     # 3. 準備儲存分層數據
     harmonic_data = {
@@ -52,20 +52,31 @@ def analyze_sst_and_ridges(
     current_jump_start_time = None
     is_jumping = False
 
+    # ★ 關鍵修正：建立有效範圍遮罩 ★
+    # 只允許在使用者設定的 y_min ~ y_max 範圍內的訊號參與峰值排名
+    valid_period_mask = (periods >= y_min) & (periods <= y_max)
+
     # 4. 逐時掃描與特徵提取
     num_time_steps = magnitude.shape[1]
-    global_max_energy = np.max(magnitude)
+    
+    # 計算全域最大值時，也只考慮有效範圍內的值，讓門檻更準確
+    valid_magnitude = np.where(valid_period_mask[:, None], magnitude, 0)
+    global_max_energy = np.max(valid_magnitude)
     abs_threshold = global_max_energy * ridge_thresh_percent
 
     for t_idx in range(num_time_steps):
-        spectrum_slice = magnitude[:, t_idx]
+        # 取出當下時間點的頻譜，並將不在顯示範圍內的能量直接歸零
+        spectrum_slice = np.copy(magnitude[:, t_idx])
+        spectrum_slice[~valid_period_mask] = 0 
         
+        # 尋找峰值
         peaks, properties = find_peaks(spectrum_slice, height=abs_threshold, distance=min_dist)
         
         if len(peaks) > 0:
             peak_periods = periods[peaks]
             peak_energies = properties['peak_heights']
             
+            # Top-K 過濾
             sorted_indices = np.argsort(peak_energies)[::-1]
             keep_indices = sorted_indices[:top_k_ridges]
             
@@ -73,6 +84,7 @@ def analyze_sst_and_ridges(
             final_periods = peak_periods[keep_indices]
             final_energies = peak_energies[keep_indices]
 
+            # 諧波分類：按照週期從大到小排序
             local_sort_idx = np.argsort(final_periods)[::-1]
             
             for rank, idx in enumerate(local_sort_idx):
@@ -90,6 +102,7 @@ def analyze_sst_and_ridges(
                     harmonic_data[0]['y'].append(p_val)
                     harmonic_data[0]['z'].append(e_val)
 
+            # 躍遷偵測 (3rd > 2nd)
             if len(local_sort_idx) >= 3:
                 idx_2nd = local_sort_idx[1]
                 idx_3rd = local_sort_idx[2]
@@ -117,7 +130,7 @@ def analyze_sst_and_ridges(
         jump_events.append(current_jump_start_time)
 
     # ==========================================
-    # 全白主題 Layout 基礎設定 (移除引發衝突的軸設定)
+    # 全白主題 Layout 基礎設定
     # ==========================================
     white_layout_settings = dict(
         template="plotly_white", 
@@ -127,16 +140,16 @@ def analyze_sst_and_ridges(
         uirevision='constant'
     )
     
-    # 計算 Y 軸對數顯示範圍
     y_range = [np.log10(y_min), np.log10(y_max)] if (y_min > 0 and y_max > 0) else None
 
     # ==========================================
     # 5. 繪製圖表 1: SST 熱圖
     # ==========================================
     fig_sst = go.Figure()
-    valid_mask = np.isfinite(periods)
-    plot_periods = periods[valid_mask]
-    plot_magnitude = magnitude[valid_mask, :]
+    
+    # 熱圖顯示時也套用過濾 (選用)
+    plot_periods = periods[valid_period_mask]
+    plot_magnitude = magnitude[valid_period_mask, :]
 
     fig_sst.add_trace(go.Heatmap(
         z=plot_magnitude, x=time_axis, y=plot_periods, 
@@ -160,7 +173,6 @@ def analyze_sst_and_ridges(
         **white_layout_settings
     )
     
-    # 獨立更新 X 軸與 Y 軸 (解決 ValueError 的核心)
     fig_sst.update_xaxes(
         title_text='時間 (s)', title_font=dict(color="black", size=14),
         showgrid=True, gridcolor='lightgray',
@@ -231,7 +243,6 @@ def analyze_sst_and_ridges(
         **white_layout_settings
     )
     
-    # 獨立更新 X 軸與 Y 軸
     fig_ridge.update_xaxes(
         title_text='時間 (s)', title_font=dict(color="black", size=14),
         showgrid=True, gridcolor='lightgray',
@@ -268,18 +279,19 @@ with st.sidebar:
         sst_wavelet = st.selectbox("小波基底", ['morlet', 'bump'], index=0)
         nv = st.select_slider("頻率解析度 (Voices)", options=[16, 32, 64], value=32)
 
-    st.subheader("2. 脊線提取 (去噪與連續性)")
+    st.subheader("2. 顯示範圍 (★極為重要)")
+    st.caption("程式只會抓取此範圍內的波峰！")
+    c1, c2 = st.columns(2)
+    y_axis_min = c1.number_input("Min 週期(s)", value=0.1)
+    y_axis_max = c2.number_input("Max 週期(s)", value=10.0)
+
+    st.subheader("3. 脊線提取 (去噪與連續性)")
     ridge_thresh = st.slider("⚡ 能量過濾門檻 (%)", 1, 40, 5)
     min_dist = st.slider("↔️ 峰值最小間距 (Px)", 1, 50, 15)
     top_k = st.slider("🔝 每個時刻只留 Top K 強點", 1, 10, 5)
 
-    st.subheader("3. 諧波躍遷 (Jump Detection)")
+    st.subheader("4. 諧波躍遷 (Jump Detection)")
     jump_dur = st.number_input("⏱️ 觸發需持續 (秒)", value=0.1, step=0.05, min_value=0.0)
-
-    st.subheader("4. 顯示範圍")
-    c1, c2 = st.columns(2)
-    y_axis_min = c1.number_input("Min 週期(s)", value=0.1)
-    y_axis_max = c2.number_input("Max 週期(s)", value=10.0)
 
 # --- 主程式 ---
 def load_uploaded_npy(uploaded_file):
