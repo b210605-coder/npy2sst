@@ -39,7 +39,6 @@ def analyze_sst_and_ridges(
     total_duration = time_axis[-1] # 取得總時間長度
     
     # 3. 準備儲存分層數據 (Dictionary 結構)
-    # Key 1: 1st Harmonic, Key 2: 2nd, Key 3: 3rd, Key 0: Others
     harmonic_data = {
         1: {'x': [], 'y': [], 'z': []},
         2: {'x': [], 'y': [], 'z': []},
@@ -47,7 +46,6 @@ def analyze_sst_and_ridges(
         0: {'x': [], 'y': [], 'z': []} 
     }
     
-    # 躍遷偵測變數
     jump_events = []
     consecutive_frames = 0
     required_frames = int(jump_duration_sec * fps)
@@ -62,18 +60,12 @@ def analyze_sst_and_ridges(
     for t_idx in range(num_time_steps):
         spectrum_slice = magnitude[:, t_idx]
         
-        # --- A. 找峰值 ---
-        peaks, properties = find_peaks(
-            spectrum_slice, 
-            height=abs_threshold, 
-            distance=min_dist
-        )
+        peaks, properties = find_peaks(spectrum_slice, height=abs_threshold, distance=min_dist)
         
         if len(peaks) > 0:
             peak_periods = periods[peaks]
             peak_energies = properties['peak_heights']
             
-            # --- B. Top-K 過濾 ---
             sorted_indices = np.argsort(peak_energies)[::-1]
             keep_indices = sorted_indices[:top_k_ridges]
             
@@ -81,15 +73,10 @@ def analyze_sst_and_ridges(
             final_periods = peak_periods[keep_indices]
             final_energies = peak_energies[keep_indices]
 
-            # --- C. 諧波分類與儲存 ---
-            # 依照「週期」由大到小排序 (1st -> 2nd -> 3rd)
             local_sort_idx = np.argsort(final_periods)[::-1]
             
-            # 將分類後的數據存入對應的籃子
             for rank, idx in enumerate(local_sort_idx):
-                h_num = rank + 1 # 1, 2, 3...
-                
-                # 取出對應數值
+                h_num = rank + 1
                 p_val = final_periods[idx]
                 e_val = final_energies[idx]
                 t_val = time_axis[t_idx]
@@ -99,12 +86,10 @@ def analyze_sst_and_ridges(
                     harmonic_data[h_num]['y'].append(p_val)
                     harmonic_data[h_num]['z'].append(e_val)
                 else:
-                    # 第 4 個以後的都歸類為 Others
                     harmonic_data[0]['x'].append(t_val)
                     harmonic_data[0]['y'].append(p_val)
                     harmonic_data[0]['z'].append(e_val)
 
-            # --- D. 躍遷偵測 (3rd > 2nd) ---
             if len(local_sort_idx) >= 3:
                 idx_2nd = local_sort_idx[1]
                 idx_3rd = local_sort_idx[2]
@@ -131,28 +116,29 @@ def analyze_sst_and_ridges(
     if is_jumping and consecutive_frames >= required_frames:
         jump_events.append(current_jump_start_time)
 
-    # 設定全白主題的共用 Layout
+    # ==========================================
+    # 全白主題字體與 Layout 共用設定
+    # ==========================================
     white_layout_settings = dict(
-        template="plotly_white", # 內建白底主題
+        template="plotly_white", 
         plot_bgcolor="white",
         paper_bgcolor="white",
-        font=dict(color="black"), # 字體全黑
+        font=dict(color="black", size=12), # 強制所有基本字體為黑色
         xaxis=dict(
-            showgrid=True, 
-            gridcolor='lightgray',
-            zeroline=True,
-            zerolinecolor='black',
-            linecolor='black',
-            ticks='outside'
+            showgrid=True, gridcolor='lightgray',
+            zeroline=True, zerolinecolor='black',
+            linecolor='black', ticks='outside',
+            tickfont=dict(color="black"),
+            titlefont=dict(color="black", size=14)
         ),
         yaxis=dict(
-            showgrid=True, 
-            gridcolor='lightgray',
-            zeroline=False,
-            linecolor='black',
-            ticks='outside'
+            showgrid=True, gridcolor='lightgray',
+            zeroline=False, linecolor='black',
+            ticks='outside',
+            tickfont=dict(color="black"),
+            titlefont=dict(color="black", size=14)
         ),
-        uirevision='constant' # 關鍵：切換數據時保持縮放狀態不變
+        uirevision='constant'
     )
 
     # ==========================================
@@ -165,20 +151,27 @@ def analyze_sst_and_ridges(
 
     fig_sst.add_trace(go.Heatmap(
         z=plot_magnitude, x=time_axis, y=plot_periods, 
-        colorscale='Jet', colorbar=dict(title='Energy'), name='SST Spectrum'
+        coloraxis="coloraxis", # 關鍵：使用全域色彩軸
+        name='SST Spectrum'
     ))
 
     for jump_t in jump_events:
         fig_sst.add_vline(x=jump_t, line_width=2, line_dash="dash", line_color="white", opacity=0.8)
 
     fig_sst.update_layout(
-        title='1. SST 時頻能量熱圖',
+        title=dict(text='1. SST 時頻能量熱圖', font=dict(color="black", size=18)),
         xaxis_title='時間 (s)', yaxis_title='週期 (s)',
         height=500, yaxis_type="log",
-        **white_layout_settings # 套用白底設定
+        coloraxis=dict(
+            colorscale='Jet',
+            colorbar=dict(
+                title=dict(text='Energy', font=dict(color="black")),
+                tickfont=dict(color="black")
+            )
+        ),
+        **white_layout_settings
     )
     
-    # 強制鎖定範圍，防止跳動
     fig_sst.update_xaxes(range=[0, total_duration])
     if y_min > 0 and y_max > 0:
         fig_sst.update_yaxes(range=[np.log10(y_min), np.log10(y_max)])
@@ -199,7 +192,6 @@ def analyze_sst_and_ridges(
     for k in [1, 2, 3, 0]:
         d = harmonic_data[k]
         if len(d['x']) > 0:
-            # 修正後的 hovertemplate，使用雙大括號 {{ }} 來避開 f-string 解析
             fig_ridge.add_trace(go.Scatter(
                 x=d['x'],
                 y=d['y'],
@@ -209,10 +201,7 @@ def analyze_sst_and_ridges(
                     symbol=markers.get(k, "circle"),
                     size=6 if k==1 else 5, 
                     color=d['z'],
-                    colorscale='Jet',
-                    cmin=cmin, cmax=cmax, 
-                    showscale=(k==1),
-                    colorbar=dict(title='Energy') if k==1 else None
+                    coloraxis="coloraxis" # 關鍵：不寫死在 k=1，交給全域 Layout
                 ),
                 hovertemplate=f"<b>{labels[k]}</b><br>Time: %{{x:.2f}}s<br>Period: %{{y:.4f}}s<br>Energy: %{{marker.color:.2f}}<extra></extra>"
             ))
@@ -221,27 +210,31 @@ def analyze_sst_and_ridges(
         fig_ridge.add_vline(x=jump_t, line_width=2, line_dash="dash", line_color="red")
         fig_ridge.add_annotation(
             x=jump_t, y=np.log10(y_max) if y_max>0 else 0,
-            text=f"Jump {i+1}", showarrow=False, yshift=10, font=dict(color="red")
+            text=f"Jump {i+1}", showarrow=False, yshift=10, font=dict(color="red", size=12)
         )
 
     fig_ridge.update_layout(
-        title=f'2. 諧波分類標記 (點擊圖例可開關，畫面不跳動)',
+        title=dict(text='2. 諧波分類標記 (點擊圖例可開關，畫面不跳動)', font=dict(color="black", size=18)),
         xaxis_title='時間 (s)', 
         yaxis_title='週期 (s)',
         height=500, 
         yaxis_type="log",
         legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1,
-            bgcolor="rgba(255,255,255,0.8)" # 圖例背景也設白
+            orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
+            bgcolor="rgba(255,255,255,0.8)", font=dict(color="black") # 圖例字體也設黑色
         ),
-        **white_layout_settings # 套用白底設定與 uirevision
+        # 設定獨立的 Colorbar，即使 Trace 隱藏也不會消失
+        coloraxis=dict(
+            colorscale='Jet',
+            cmin=cmin, cmax=cmax,
+            colorbar=dict(
+                title=dict(text='Energy', font=dict(color="black")),
+                tickfont=dict(color="black")
+            )
+        ),
+        **white_layout_settings
     )
     
-    # 強制設定 range，不要讓 plotly 自動決定
     fig_ridge.update_xaxes(range=[0, total_duration], autorange=False)
     if y_min > 0 and y_max > 0:
         fig_ridge.update_yaxes(range=[np.log10(y_min), np.log10(y_max)], autorange=False)
@@ -312,8 +305,9 @@ if uploaded_file is not None:
             jump_duration_sec=jump_dur
         )
         
-        st.plotly_chart(fig1, use_container_width=True)
-        st.plotly_chart(fig2, use_container_width=True)
+        # 關鍵修改：加上 theme=None，強制 Streamlit 不要覆蓋我們的白色主題！
+        st.plotly_chart(fig1, use_container_width=True, theme=None)
+        st.plotly_chart(fig2, use_container_width=True, theme=None)
         
         if jumps:
             st.success(f"✅ 偵測到 {len(jumps)} 次諧波躍遷 (3rd > 2nd)！")
