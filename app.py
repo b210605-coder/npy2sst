@@ -11,7 +11,7 @@ except ImportError:
     HAS_SSQ = False
 
 # ==========================================
-# 核心分析函式 (SST + 數學錨定法 + 抓取最低點)
+# 核心分析函式 (SST + 週期最大值錨定法 + 抓取最低點)
 # ==========================================
 def analyze_sst_and_ridges(
     data, fps, wavelet, nv, y_min, y_max, 
@@ -59,21 +59,14 @@ def analyze_sst_and_ridges(
         spectrum_slice = np.copy(magnitude[:, t_idx])
         spectrum_slice[~valid_period_mask] = 0 
         
-        # 1. 物理錨定：找出絕對最強的基頻 (T_base)
-        if np.max(spectrum_slice) < abs_threshold:
-            continue 
-            
-        max_idx = np.argmax(spectrum_slice)
-        T_base = periods[max_idx]
-        E_base = spectrum_slice[max_idx]
-
-        # 2. 尋找與分類脊線
+        # 尋找所有有效波峰
         peaks, properties = find_peaks(spectrum_slice, height=abs_threshold, distance=min_dist)
         
         if len(peaks) > 0:
             peak_periods = periods[peaks]
             peak_energies = properties['peak_heights']
             
+            # 過濾留下最強的 Top K 個點
             sorted_indices = np.argsort(peak_energies)[::-1]
             keep_indices = sorted_indices[:top_k_ridges]
             
@@ -81,6 +74,15 @@ def analyze_sst_and_ridges(
             final_periods = peak_periods[keep_indices]
             final_energies = peak_energies[keep_indices]
 
+            # ==========================================
+            # ★ 終極錨定邏輯：基頻 = 留下來的點中「週期最大（位置最高）」的那個！
+            # 不管它能量是不是最強，物理上週期最長的就是基頻 (1st Harmonic)
+            # ==========================================
+            base_idx = np.argmax(final_periods) 
+            T_base = final_periods[base_idx]
+            E_base = final_energies[base_idx]
+
+            # 根據真實的基頻 T_base 進行分類
             for p_val, e_val in zip(final_periods, final_energies):
                 ratio = T_base / p_val  
                 t_val = time_axis[t_idx]
@@ -98,21 +100,27 @@ def analyze_sst_and_ridges(
                 harmonic_data[h_num]['y'].append(p_val)
                 harmonic_data[h_num]['z'].append(e_val)
 
-        # 3. 躍遷偵測
-        mask_2nd = (periods >= T_base/2.2) & (periods <= T_base/1.8)
-        mask_3rd = (periods >= T_base/3.2) & (periods <= T_base/2.8)
+            # 躍遷偵測
+            mask_2nd = (periods >= T_base/2.2) & (periods <= T_base/1.8)
+            mask_3rd = (periods >= T_base/3.2) & (periods <= T_base/2.8)
 
-        E_2_real = np.max(spectrum_slice[mask_2nd]) if np.any(mask_2nd) else 0
-        E_3_real = np.max(spectrum_slice[mask_3rd]) if np.any(mask_3rd) else 0
+            E_2_real = np.max(spectrum_slice[mask_2nd]) if np.any(mask_2nd) else 0
+            E_3_real = np.max(spectrum_slice[mask_3rd]) if np.any(mask_3rd) else 0
 
-        min_required_energy = E_base * 0.05 
+            min_required_energy = E_base * 0.05 
 
-        if (E_3_real > E_2_real * jump_ratio) and (E_3_real > min_required_energy):
-            if not is_jumping:
-                current_jump_start_time = time_axis[t_idx]
-                is_jumping = True
-            consecutive_frames += 1
+            if (E_3_real > E_2_real * jump_ratio) and (E_3_real > min_required_energy):
+                if not is_jumping:
+                    current_jump_start_time = time_axis[t_idx]
+                    is_jumping = True
+                consecutive_frames += 1
+            else:
+                if is_jumping and consecutive_frames >= required_frames:
+                    jump_events.append(current_jump_start_time)
+                is_jumping = False
+                consecutive_frames = 0
         else:
+            # 如果沒有抓到任何波峰，重置躍遷狀態
             if is_jumping and consecutive_frames >= required_frames:
                 jump_events.append(current_jump_start_time)
             is_jumping = False
@@ -122,7 +130,7 @@ def analyze_sst_and_ridges(
         jump_events.append(current_jump_start_time)
 
     # ==========================================
-    # ★ 新增：計算基頻 (1st Harmonic) 的極值數據
+    # 計算基頻 (1st Harmonic) 的極值數據
     # ==========================================
     stats = {
         'base_min_t': None, 'base_min_p': None,
@@ -202,7 +210,6 @@ def analyze_sst_and_ridges(
             hovertemplate="<b>基頻最低點</b><br>Time: %{x:.2f}s<br>Period: %{y:.4f}s<extra></extra>"
         ))
         
-        # 加上箭頭標註文字
         fig_ridge.add_annotation(
             x=stats['base_min_t'], y=np.log10(stats['base_min_p']),
             text="基頻最低點", showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=2, arrowcolor="magenta",
@@ -214,7 +221,7 @@ def analyze_sst_and_ridges(
         fig_ridge.add_annotation(x=jump_t, y=np.log10(y_max) if y_max>0 else 0, text=f"Jump {i+1}", showarrow=False, yshift=10, font=dict(color="red", size=12))
 
     fig_ridge.update_layout(
-        title=dict(text='2. 諧波分類標記 (物理比例錨定法)', font=dict(color="black", size=18)),
+        title=dict(text='2. 諧波分類標記 (物理週期錨定法)', font=dict(color="black", size=18)),
         height=500, 
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor="rgba(255,255,255,0.8)", font=dict(color="black")),
         coloraxis=dict(colorscale='Jet', cmin=cmin, cmax=cmax, colorbar=dict(title=dict(text='Energy', font=dict(color="black")), tickfont=dict(color="black"))),
@@ -246,7 +253,7 @@ with st.sidebar:
         nv = st.select_slider("頻率解析度 (Voices)", options=[16, 32, 64], value=32)
 
     st.subheader("2. 顯示範圍 (★極為重要)")
-    st.caption("程式只會抓取此範圍內的波峰！")
+    st.caption("程式只會在此範圍內尋找基頻！")
     c1, c2 = st.columns(2)
     y_axis_min = c1.number_input("Min 週期(s)", value=0.1)
     y_axis_max = c2.number_input("Max 週期(s)", value=10.0)
@@ -285,7 +292,7 @@ if uploaded_file is not None:
         fig_orig.update_yaxes(title_font=dict(color="black", size=12), tickfont=dict(color="black"), showgrid=True, gridcolor='lightgray', linecolor='black')
         st.plotly_chart(fig_orig, use_container_width=True, theme=None)
 
-        # 取得分析結果 (包含極值 stats)
+        # 取得分析結果
         fig1, fig2, jumps, stats = analyze_sst_and_ridges(
             data=signal_data, fps=fps, wavelet=sst_wavelet, nv=nv,
             y_min=y_axis_min, y_max=y_axis_max, ridge_thresh_percent=ridge_thresh/100.0,
@@ -296,13 +303,10 @@ if uploaded_file is not None:
         st.plotly_chart(fig1, use_container_width=True, theme=None)
         st.plotly_chart(fig2, use_container_width=True, theme=None)
         
-        # ================================
-        # ★ 顯示分析數據結果
-        # ================================
+        # 顯示極值與躍遷資訊
         st.markdown("### 📊 分析結果總結")
         c1, c2 = st.columns(2)
         
-        # 顯示基頻極值資訊
         with c1:
             if stats['base_min_t'] is not None:
                 st.info(
@@ -321,7 +325,6 @@ if uploaded_file is not None:
                     f"📈 最大週期: **{stats['base_max_p']:.4f} 秒** (約 {1/stats['base_max_p']:.2f} Hz)"
                 )
 
-        # 顯示躍遷資訊
         if jumps:
             st.warning(f"🚀 **偵測到 {len(jumps)} 次諧波躍遷 (3rd > 2nd)**\n\n" + 
                        "發生的時間點 (秒): " + ", ".join([f"{t:.2f}" for t in jumps]))
