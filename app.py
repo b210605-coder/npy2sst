@@ -36,6 +36,7 @@ def analyze_sst_and_ridges(
     with np.errstate(divide='ignore'): 
         periods = 1 / ssq_freqs
     time_axis = np.arange(len(data)) / fps
+    total_duration = time_axis[-1] # 取得總時間長度
     
     # 3. 準備儲存分層數據 (Dictionary 結構)
     # Key 1: 1st Harmonic, Key 2: 2nd, Key 3: 3rd, Key 0: Others
@@ -130,6 +131,30 @@ def analyze_sst_and_ridges(
     if is_jumping and consecutive_frames >= required_frames:
         jump_events.append(current_jump_start_time)
 
+    # 設定全白主題的共用 Layout
+    white_layout_settings = dict(
+        template="plotly_white", # 內建白底主題
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        font=dict(color="black"), # 字體全黑
+        xaxis=dict(
+            showgrid=True, 
+            gridcolor='lightgray',
+            zeroline=True,
+            zerolinecolor='black',
+            linecolor='black',
+            ticks='outside'
+        ),
+        yaxis=dict(
+            showgrid=True, 
+            gridcolor='lightgray',
+            zeroline=False,
+            linecolor='black',
+            ticks='outside'
+        ),
+        uirevision='constant' # 關鍵：切換數據時保持縮放狀態不變
+    )
+
     # ==========================================
     # 5. 繪製圖表 1: SST 熱圖
     # ==========================================
@@ -149,8 +174,12 @@ def analyze_sst_and_ridges(
     fig_sst.update_layout(
         title='1. SST 時頻能量熱圖',
         xaxis_title='時間 (s)', yaxis_title='週期 (s)',
-        height=500, yaxis_type="log"
+        height=500, yaxis_type="log",
+        **white_layout_settings # 套用白底設定
     )
+    
+    # 強制鎖定範圍，防止跳動
+    fig_sst.update_xaxes(range=[0, total_duration])
     if y_min > 0 and y_max > 0:
         fig_sst.update_yaxes(range=[np.log10(y_min), np.log10(y_max)])
 
@@ -159,19 +188,14 @@ def analyze_sst_and_ridges(
     # ==========================================
     fig_ridge = go.Figure()
 
-    # 定義圖例名稱與標記符號 (可選)
-    # 這裡我們用同樣的顏色映射 (Jet)，但拆成不同的 Trace 以便開關
     labels = {1: "1st Harmonic (基頻)", 2: "2nd Harmonic", 3: "3rd Harmonic", 0: "Others"}
-    markers = {1: "circle", 2: "diamond", 3: "cross", 0: "x"} # 不同形狀幫助區分
+    markers = {1: "circle", 2: "diamond", 3: "cross", 0: "x"} 
     
-    # 計算全域最大最小值以統一色階
     all_z = []
     for k in harmonic_data:
         all_z.extend(harmonic_data[k]['z'])
-    
     cmin, cmax = (min(all_z), max(all_z)) if all_z else (0, 1)
 
-    # 迴圈加入四個分層 Trace
     for k in [1, 2, 3, 0]:
         d = harmonic_data[k]
         if len(d['x']) > 0:
@@ -182,21 +206,16 @@ def analyze_sst_and_ridges(
                 name=labels[k],
                 marker=dict(
                     symbol=markers.get(k, "circle"),
-                    size=6 if k==1 else 5, # 基頻稍微大一點
+                    size=6 if k==1 else 5, 
                     color=d['z'],
                     colorscale='Jet',
-                    cmin=cmin, cmax=cmax, # 鎖定色階範圍
-                    showscale=(k==1),     # 只在第一層顯示 Colorbar 避免重複
+                    cmin=cmin, cmax=cmax, 
+                    showscale=(k==1),
                     colorbar=dict(title='Energy') if k==1 else None
                 ),
-                hovertemplate=
-                f"<b>{labels[k]}</b><br>" +
-                "Time: %{x:.2f}s<br>" +
-                "Period: %{y:.4f}s<br>" +
-                "Energy: %{marker.color:.2f}<extra></extra>"
+                hovertemplate=f"<b>{labels[k]}</b><br>Time: %{x:.2f}s<br>Period: %{y:.4f}s<br>Energy: %{marker.color:.2f}<extra></extra>"
             ))
 
-    # 標示躍遷點
     for i, jump_t in enumerate(jump_events):
         fig_ridge.add_vline(x=jump_t, line_width=2, line_dash="dash", line_color="red")
         fig_ridge.add_annotation(
@@ -205,23 +224,26 @@ def analyze_sst_and_ridges(
         )
 
     fig_ridge.update_layout(
-        title=f'2. 諧波分類標記 (點擊圖例可開關各諧波)',
+        title=f'2. 諧波分類標記 (點擊圖例可開關，畫面不跳動)',
         xaxis_title='時間 (s)', 
         yaxis_title='週期 (s)',
         height=500, 
         yaxis_type="log",
-        plot_bgcolor='rgba(0,0,0,0.05)',
         legend=dict(
             orientation="h",
             yanchor="bottom",
             y=1.02,
             xanchor="right",
-            x=1
-        )
+            x=1,
+            bgcolor="rgba(255,255,255,0.8)" # 圖例背景也設白
+        ),
+        **white_layout_settings # 套用白底設定與 uirevision
     )
     
+    # 這裡也是關鍵：強制設定 range，不要讓 plotly 自動決定
+    fig_ridge.update_xaxes(range=[0, total_duration], autorange=False)
     if y_min > 0 and y_max > 0:
-        fig_ridge.update_yaxes(range=[np.log10(y_min), np.log10(y_max)])
+        fig_ridge.update_yaxes(range=[np.log10(y_min), np.log10(y_max)], autorange=False)
 
     return fig_sst, fig_ridge, jump_events
 
@@ -229,7 +251,7 @@ def analyze_sst_and_ridges(
 # 3. Streamlit 介面
 # ==========================================
 st.set_page_config(page_title="SST 諧波分析 Pro", layout="wide")
-st.title("📊 SST 諧波分析 Pro (分層標記版)")
+st.title("📊 SST 諧波分析 Pro (白底 + 鎖定視角)")
 
 if not HAS_SSQ:
     st.error("請先安裝必要套件: pip install ssqueezepy scipy plotly")
