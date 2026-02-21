@@ -199,6 +199,7 @@ def analyze_sst_and_ridges(
     for k in [1, 2, 3, 0]:
         d = harmonic_data[k]
         if len(d['x']) > 0:
+            # 修正後的 hovertemplate，使用雙大括號 {{ }} 來避開 f-string 解析
             fig_ridge.add_trace(go.Scatter(
                 x=d['x'],
                 y=d['y'],
@@ -213,7 +214,7 @@ def analyze_sst_and_ridges(
                     showscale=(k==1),
                     colorbar=dict(title='Energy') if k==1 else None
                 ),
-                hovertemplate=f"<b>{labels[k]}</b><br>Time: %{x:.2f}s<br>Period: %{y:.4f}s<br>Energy: %{marker.color:.2f}<extra></extra>"
+                hovertemplate=f"<b>{labels[k]}</b><br>Time: %{{x:.2f}}s<br>Period: %{{y:.4f}}s<br>Energy: %{{marker.color:.2f}}<extra></extra>"
             ))
 
     for i, jump_t in enumerate(jump_events):
@@ -240,7 +241,7 @@ def analyze_sst_and_ridges(
         **white_layout_settings # 套用白底設定與 uirevision
     )
     
-    # 這裡也是關鍵：強制設定 range，不要讓 plotly 自動決定
+    # 強制設定 range，不要讓 plotly 自動決定
     fig_ridge.update_xaxes(range=[0, total_duration], autorange=False)
     if y_min > 0 and y_max > 0:
         fig_ridge.update_yaxes(range=[np.log10(y_min), np.log10(y_max)], autorange=False)
