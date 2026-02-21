@@ -282,4 +282,57 @@ def load_uploaded_npy(uploaded_file):
         return None
     except: return None
 
-uploaded_file = st.file_uploader("Upload .npy Data File", t
+uploaded_file = st.file_uploader("Upload .npy Data File", type=["npy"])
+
+if uploaded_file is not None:
+    signal_data = load_uploaded_npy(uploaded_file)
+    if signal_data is not None:
+        signal_data = signal_data - np.mean(signal_data)
+        
+        # Plot full original signal
+        time_axis_orig = np.arange(len(signal_data)) / fps 
+        fig_orig = go.Figure()
+        fig_orig.add_trace(go.Scatter(x=time_axis_orig, y=signal_data, mode='lines', name='Original Signal', line=dict(color='royalblue', width=1)))
+        fig_orig.update_layout(title=dict(text='Original Signal (DC offset removed)', font=dict(color="black", size=16)), xaxis_title='Time (s)', yaxis_title='Amplitude', height=250, margin=dict(l=0, r=0, t=40, b=0), template="plotly_white", plot_bgcolor="white", paper_bgcolor="white")
+        fig_orig.update_xaxes(title_font=dict(color="black", size=12), tickfont=dict(color="black"), showgrid=True, gridcolor='lightgray', linecolor='black')
+        fig_orig.update_yaxes(title_font=dict(color="black", size=12), tickfont=dict(color="black"), showgrid=True, gridcolor='lightgray', linecolor='black')
+        st.plotly_chart(fig_orig, use_container_width=True, theme=None)
+
+        # Get analysis results
+        fig1, fig2, jumps, stats = analyze_sst_and_ridges(
+            data=signal_data, fps=fps, wavelet=sst_wavelet, nv=nv,
+            y_min=y_axis_min, y_max=y_axis_max, ridge_thresh_percent=ridge_thresh/100.0,
+            min_dist=min_dist, top_k_ridges=top_k, jump_duration_sec=jump_dur,
+            jump_ratio=jump_multiplier 
+        )
+        
+        st.plotly_chart(fig1, use_container_width=True, theme=None)
+        st.plotly_chart(fig2, use_container_width=True, theme=None)
+        
+        # Display extreme values and jump info
+        st.markdown("### 📊 Analysis Summary")
+        c1, c2 = st.columns(2)
+        
+        with c1:
+            if stats['base_min_t'] is not None:
+                st.info(
+                    f"🔴 **Lowest Fundamental Period**\n\n"
+                    f"⏱️ Time: **{stats['base_min_t']:.2f} s**\n\n"
+                    f"📉 Min Period: **{stats['base_min_p']:.4f} s** (~ {1/stats['base_min_p']:.2f} Hz)"
+                )
+            else:
+                st.info("No fundamental frequency data detected yet.")
+                
+        with c2:
+            if stats['base_max_t'] is not None:
+                st.success(
+                    f"📈 **Highest Fundamental Period**\n\n"
+                    f"⏱️ Time: **{stats['base_max_t']:.2f} s**\n\n"
+                    f"📈 Max Period: **{stats['base_max_p']:.4f} s** (~ {1/stats['base_max_p']:.2f} Hz)"
+                )
+
+        if jumps:
+            st.warning(f"🚀 **First Harmonic Jump Detected (3rd > 2nd)** at **{jumps[0]:.2f} s**\n\n" + 
+                       f"Total jumps detected in sequence: {len(jumps)}")
+        else:
+            st.markdown("No qualifying harmonic jumps detected.")
