@@ -11,34 +11,29 @@ except ImportError:
     HAS_SSQ = False
 
 # ==========================================
-# 核心分析函式 (SST + 諧波分層標記 + 躍遷偵測)
+# 核心分析函式 (SST + 數學錨定法諧波分類 + 躍遷偵測)
 # ==========================================
 def analyze_sst_and_ridges(
     data, fps, wavelet, nv, y_min, y_max, 
     ridge_thresh_percent, min_dist, 
     top_k_ridges,          
-    jump_duration_sec      
+    jump_duration_sec,
+    jump_ratio # 新增：E3 必須是 E2 的幾倍
 ):
-    """
-    執行 SST，提取脊線並按諧波順序分類 (1st, 2nd, 3rd, Others)
-    """
     st.write(f"🔄 計算 SST (Wavelet: {wavelet}, Voices: {nv})...")
 
     try:
-        # 1. 計算 SST
         Tx, Wx, ssq_freqs, scales = ssq_cwt(data, wavelet=wavelet, fs=fps, nv=nv)
     except Exception as e:
         st.error(f"SST 計算錯誤: {e}")
         return go.Figure(), go.Figure(), []
 
-    # 2. 處理數據
     magnitude = np.abs(Tx)
     with np.errstate(divide='ignore'): 
         periods = 1 / ssq_freqs
     time_axis = np.arange(len(data)) / fps
     total_duration = time_axis[-1]
     
-    # 3. 準備儲存分層數據
     harmonic_data = {
         1: {'x': [], 'y': [], 'z': []},
         2: {'x': [], 'y': [], 'z': []},
@@ -52,31 +47,33 @@ def analyze_sst_and_ridges(
     current_jump_start_time = None
     is_jumping = False
 
-    # ★ 關鍵修正：建立有效範圍遮罩 ★
-    # 只允許在使用者設定的 y_min ~ y_max 範圍內的訊號參與峰值排名
+    # 建立有效範圍遮罩
     valid_period_mask = (periods >= y_min) & (periods <= y_max)
-
-    # 4. 逐時掃描與特徵提取
     num_time_steps = magnitude.shape[1]
     
-    # 計算全域最大值時，也只考慮有效範圍內的值，讓門檻更準確
     valid_magnitude = np.where(valid_period_mask[:, None], magnitude, 0)
     global_max_energy = np.max(valid_magnitude)
     abs_threshold = global_max_energy * ridge_thresh_percent
 
     for t_idx in range(num_time_steps):
-        # 取出當下時間點的頻譜，並將不在顯示範圍內的能量直接歸零
         spectrum_slice = np.copy(magnitude[:, t_idx])
         spectrum_slice[~valid_period_mask] = 0 
         
-        # 尋找峰值
+        # --- 1. 物理錨定：找出絕對最強的基頻 (T_base) ---
+        if np.max(spectrum_slice) < abs_threshold:
+            continue # 如果整個畫面都很安靜，直接跳過
+            
+        max_idx = np.argmax(spectrum_slice)
+        T_base = periods[max_idx]
+        E_base = spectrum_slice[max_idx]
+
+        # --- 2. 尋找與分類脊線 (視覺用) ---
         peaks, properties = find_peaks(spectrum_slice, height=abs_threshold, distance=min_dist)
         
         if len(peaks) > 0:
             peak_periods = periods[peaks]
             peak_energies = properties['peak_heights']
             
-            # Top-K 過濾
             sorted_indices = np.argsort(peak_energies)[::-1]
             keep_indices = sorted_indices[:top_k_ridges]
             
@@ -84,47 +81,46 @@ def analyze_sst_and_ridges(
             final_periods = peak_periods[keep_indices]
             final_energies = peak_energies[keep_indices]
 
-            # 諧波分類：按照週期從大到小排序
-            local_sort_idx = np.argsort(final_periods)[::-1]
-            
-            for rank, idx in enumerate(local_sort_idx):
-                h_num = rank + 1
-                p_val = final_periods[idx]
-                e_val = final_energies[idx]
+            # 【重要】根據物理倍率來分類，不再盲目排序！
+            for p_val, e_val in zip(final_periods, final_energies):
+                ratio = T_base / p_val  # T_base / 週期 = 第幾諧波
                 t_val = time_axis[t_idx]
 
-                if h_num <= 3:
-                    harmonic_data[h_num]['x'].append(t_val)
-                    harmonic_data[h_num]['y'].append(p_val)
-                    harmonic_data[h_num]['z'].append(e_val)
+                if 0.85 <= ratio <= 1.15:     # 1st Harmonic (約 1 倍)
+                    h_num = 1
+                elif 1.8 <= ratio <= 2.2:     # 2nd Harmonic (約 2 倍)
+                    h_num = 2
+                elif 2.8 <= ratio <= 3.2:     # 3rd Harmonic (約 3 倍)
+                    h_num = 3
                 else:
-                    harmonic_data[0]['x'].append(t_val)
-                    harmonic_data[0]['y'].append(p_val)
-                    harmonic_data[0]['z'].append(e_val)
+                    h_num = 0                 # 其他雜訊或高階諧波
 
-            # 躍遷偵測 (3rd > 2nd)
-            if len(local_sort_idx) >= 3:
-                idx_2nd = local_sort_idx[1]
-                idx_3rd = local_sort_idx[2]
-                
-                energy_2nd = final_energies[idx_2nd]
-                energy_3rd = final_energies[idx_3rd]
+                harmonic_data[h_num]['x'].append(t_val)
+                harmonic_data[h_num]['y'].append(p_val)
+                harmonic_data[h_num]['z'].append(e_val)
 
-                if energy_3rd > energy_2nd:
-                    if not is_jumping:
-                        current_jump_start_time = time_axis[t_idx]
-                        is_jumping = True
-                    consecutive_frames += 1
-                else:
-                    if is_jumping and consecutive_frames >= required_frames:
-                        jump_events.append(current_jump_start_time)
-                    is_jumping = False
-                    consecutive_frames = 0
-            else:
-                if is_jumping and consecutive_frames >= required_frames:
-                    jump_events.append(current_jump_start_time)
-                is_jumping = False
-                consecutive_frames = 0
+        # --- 3. 真實能量躍遷偵測 (避免波峰遺失造成的誤判) ---
+        # 直接去 2nd 和 3rd 該出現的週期範圍內，抓取「真實最大能量」
+        mask_2nd = (periods >= T_base/2.2) & (periods <= T_base/1.8)
+        mask_3rd = (periods >= T_base/3.2) & (periods <= T_base/2.8)
+
+        E_2_real = np.max(spectrum_slice[mask_2nd]) if np.any(mask_2nd) else 0
+        E_3_real = np.max(spectrum_slice[mask_3rd]) if np.any(mask_3rd) else 0
+
+        # 防呆機制：E3 必須大於背景閾值，不能拿兩個微弱的雜訊互相比較
+        min_required_energy = E_base * 0.05 
+
+        # 判定：E3 必須顯著大於 E2 (乘上倍率)，且 E3 不能是微小雜訊
+        if (E_3_real > E_2_real * jump_ratio) and (E_3_real > min_required_energy):
+            if not is_jumping:
+                current_jump_start_time = time_axis[t_idx]
+                is_jumping = True
+            consecutive_frames += 1
+        else:
+            if is_jumping and consecutive_frames >= required_frames:
+                jump_events.append(current_jump_start_time)
+            is_jumping = False
+            consecutive_frames = 0
 
     if is_jumping and consecutive_frames >= required_frames:
         jump_events.append(current_jump_start_time)
@@ -139,22 +135,18 @@ def analyze_sst_and_ridges(
         font=dict(color="black", size=12), 
         uirevision='constant'
     )
-    
     y_range = [np.log10(y_min), np.log10(y_max)] if (y_min > 0 and y_max > 0) else None
 
     # ==========================================
     # 5. 繪製圖表 1: SST 熱圖
     # ==========================================
     fig_sst = go.Figure()
-    
-    # 熱圖顯示時也套用過濾 (選用)
     plot_periods = periods[valid_period_mask]
     plot_magnitude = magnitude[valid_period_mask, :]
 
     fig_sst.add_trace(go.Heatmap(
         z=plot_magnitude, x=time_axis, y=plot_periods, 
-        coloraxis="coloraxis", 
-        name='SST Spectrum'
+        coloraxis="coloraxis", name='SST Spectrum'
     ))
 
     for jump_t in jump_events:
@@ -165,56 +157,39 @@ def analyze_sst_and_ridges(
         height=500,
         coloraxis=dict(
             colorscale='Jet',
-            colorbar=dict(
-                title=dict(text='Energy', font=dict(color="black")),
-                tickfont=dict(color="black")
-            )
+            colorbar=dict(title=dict(text='Energy', font=dict(color="black")), tickfont=dict(color="black"))
         ),
         **white_layout_settings
     )
     
     fig_sst.update_xaxes(
         title_text='時間 (s)', title_font=dict(color="black", size=14),
-        showgrid=True, gridcolor='lightgray',
-        zeroline=True, zerolinecolor='black', linecolor='black', 
-        ticks='outside', tickfont=dict(color="black"),
-        range=[0, total_duration]
+        showgrid=True, gridcolor='lightgray', zeroline=True, zerolinecolor='black', linecolor='black', 
+        ticks='outside', tickfont=dict(color="black"), range=[0, total_duration]
     )
     fig_sst.update_yaxes(
         title_text='週期 (s)', title_font=dict(color="black", size=14),
-        showgrid=True, gridcolor='lightgray',
-        zeroline=False, linecolor='black',
-        ticks='outside', tickfont=dict(color="black"),
-        type="log", range=y_range
+        showgrid=True, gridcolor='lightgray', zeroline=False, linecolor='black',
+        ticks='outside', tickfont=dict(color="black"), type="log", range=y_range
     )
 
     # ==========================================
     # 6. 繪製圖表 2: 分層諧波脊線圖
     # ==========================================
     fig_ridge = go.Figure()
-
     labels = {1: "1st Harmonic (基頻)", 2: "2nd Harmonic", 3: "3rd Harmonic", 0: "Others"}
     markers = {1: "circle", 2: "diamond", 3: "cross", 0: "x"} 
     
     all_z = []
-    for k in harmonic_data:
-        all_z.extend(harmonic_data[k]['z'])
+    for k in harmonic_data: all_z.extend(harmonic_data[k]['z'])
     cmin, cmax = (min(all_z), max(all_z)) if all_z else (0, 1)
 
     for k in [1, 2, 3, 0]:
         d = harmonic_data[k]
         if len(d['x']) > 0:
             fig_ridge.add_trace(go.Scatter(
-                x=d['x'],
-                y=d['y'],
-                mode='markers',
-                name=labels[k],
-                marker=dict(
-                    symbol=markers.get(k, "circle"),
-                    size=6 if k==1 else 5, 
-                    color=d['z'],
-                    coloraxis="coloraxis"
-                ),
+                x=d['x'], y=d['y'], mode='markers', name=labels[k],
+                marker=dict(symbol=markers.get(k, "circle"), size=6 if k==1 else 5, color=d['z'], coloraxis="coloraxis"),
                 hovertemplate=f"<b>{labels[k]}</b><br>Time: %{{x:.2f}}s<br>Period: %{{y:.4f}}s<br>Energy: %{{marker.color:.2f}}<extra></extra>"
             ))
 
@@ -226,36 +201,22 @@ def analyze_sst_and_ridges(
         )
 
     fig_ridge.update_layout(
-        title=dict(text='2. 諧波分類標記 (點擊圖例可開關，畫面不跳動)', font=dict(color="black", size=18)),
+        title=dict(text='2. 諧波分類標記 (物理比例錨定法)', font=dict(color="black", size=18)),
         height=500, 
-        legend=dict(
-            orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
-            bgcolor="rgba(255,255,255,0.8)", font=dict(color="black")
-        ),
-        coloraxis=dict(
-            colorscale='Jet',
-            cmin=cmin, cmax=cmax,
-            colorbar=dict(
-                title=dict(text='Energy', font=dict(color="black")),
-                tickfont=dict(color="black")
-            )
-        ),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor="rgba(255,255,255,0.8)", font=dict(color="black")),
+        coloraxis=dict(colorscale='Jet', cmin=cmin, cmax=cmax, colorbar=dict(title=dict(text='Energy', font=dict(color="black")), tickfont=dict(color="black"))),
         **white_layout_settings
     )
     
     fig_ridge.update_xaxes(
         title_text='時間 (s)', title_font=dict(color="black", size=14),
-        showgrid=True, gridcolor='lightgray',
-        zeroline=True, zerolinecolor='black', linecolor='black', 
-        ticks='outside', tickfont=dict(color="black"),
-        range=[0, total_duration], autorange=False
+        showgrid=True, gridcolor='lightgray', zeroline=True, zerolinecolor='black', linecolor='black', 
+        ticks='outside', tickfont=dict(color="black"), range=[0, total_duration], autorange=False
     )
     fig_ridge.update_yaxes(
         title_text='週期 (s)', title_font=dict(color="black", size=14),
-        showgrid=True, gridcolor='lightgray',
-        zeroline=False, linecolor='black',
-        ticks='outside', tickfont=dict(color="black"),
-        type="log", range=y_range, autorange=False
+        showgrid=True, gridcolor='lightgray', zeroline=False, linecolor='black',
+        ticks='outside', tickfont=dict(color="black"), type="log", range=y_range, autorange=False
     )
 
     return fig_sst, fig_ridge, jump_events
@@ -264,7 +225,7 @@ def analyze_sst_and_ridges(
 # 3. Streamlit 介面
 # ==========================================
 st.set_page_config(page_title="SST 諧波分析 Pro", layout="wide")
-st.title("📊 SST 諧波分析 Pro (白底 + 鎖定視角)")
+st.title("📊 SST 諧波分析 Pro (物理錨定精準版)")
 
 if not HAS_SSQ:
     st.error("請先安裝必要套件: pip install ssqueezepy scipy plotly")
@@ -292,6 +253,8 @@ with st.sidebar:
 
     st.subheader("4. 諧波躍遷 (Jump Detection)")
     jump_dur = st.number_input("⏱️ 觸發需持續 (秒)", value=0.1, step=0.05, min_value=0.0)
+    # 新增倍率閥值，預設 1.0 (就是 E3 > E2)
+    jump_multiplier = st.slider("🚀 躍遷能量閥值 (E3 必須大於 E2 幾倍)", 1.0, 3.0, 1.0, 0.1, help="調高可以濾掉更多微弱的誤判")
 
 # --- 主程式 ---
 def load_uploaded_npy(uploaded_file):
@@ -307,59 +270,26 @@ uploaded_file = st.file_uploader("上傳 .npy 數據檔案", type=["npy"])
 if uploaded_file is not None:
     signal_data = load_uploaded_npy(uploaded_file)
     if signal_data is not None:
-        # 去除直流分量
         signal_data = signal_data - np.mean(signal_data)
         
-        # ---------------------------------------------------------
-        # ★ 修正：使用 Plotly 繪製完整的原始訊號，並換算成秒數
-        # ---------------------------------------------------------
-        time_axis_orig = np.arange(len(signal_data)) / fps # 計算真實秒數
-        
+        # 繪製完整原始訊號 (支援秒數與白底)
+        time_axis_orig = np.arange(len(signal_data)) / fps 
         fig_orig = go.Figure()
-        fig_orig.add_trace(go.Scatter(
-            x=time_axis_orig, 
-            y=signal_data, 
-            mode='lines', 
-            name='Original Signal',
-            line=dict(color='royalblue', width=1)
-        ))
-        
+        fig_orig.add_trace(go.Scatter(x=time_axis_orig, y=signal_data, mode='lines', name='Original Signal', line=dict(color='royalblue', width=1)))
         fig_orig.update_layout(
             title=dict(text='原始訊號 (去除直流分量)', font=dict(color="black", size=16)),
-            xaxis_title='時間 (s)',
-            yaxis_title='振幅',
-            height=250,
-            margin=dict(l=0, r=0, t=40, b=0),
-            template="plotly_white",
-            plot_bgcolor="white",
-            paper_bgcolor="white"
+            xaxis_title='時間 (s)', yaxis_title='振幅', height=250, margin=dict(l=0, r=0, t=40, b=0),
+            template="plotly_white", plot_bgcolor="white", paper_bgcolor="white"
         )
-        
-        # 套用黑色字體與座標軸設定
-        fig_orig.update_xaxes(
-            title_font=dict(color="black", size=12), tickfont=dict(color="black"),
-            showgrid=True, gridcolor='lightgray', linecolor='black'
-        )
-        fig_orig.update_yaxes(
-            title_font=dict(color="black", size=12), tickfont=dict(color="black"),
-            showgrid=True, gridcolor='lightgray', linecolor='black'
-        )
-
+        fig_orig.update_xaxes(title_font=dict(color="black", size=12), tickfont=dict(color="black"), showgrid=True, gridcolor='lightgray', linecolor='black')
+        fig_orig.update_yaxes(title_font=dict(color="black", size=12), tickfont=dict(color="black"), showgrid=True, gridcolor='lightgray', linecolor='black')
         st.plotly_chart(fig_orig, use_container_width=True, theme=None)
-        # ---------------------------------------------------------
 
-        # 執行 SST 分析
         fig1, fig2, jumps = analyze_sst_and_ridges(
-            data=signal_data, 
-            fps=fps, 
-            wavelet=sst_wavelet, 
-            nv=nv,
-            y_min=y_axis_min, 
-            y_max=y_axis_max,
-            ridge_thresh_percent=ridge_thresh/100.0,
-            min_dist=min_dist,
-            top_k_ridges=top_k,
-            jump_duration_sec=jump_dur
+            data=signal_data, fps=fps, wavelet=sst_wavelet, nv=nv,
+            y_min=y_axis_min, y_max=y_axis_max, ridge_thresh_percent=ridge_thresh/100.0,
+            min_dist=min_dist, top_k_ridges=top_k, jump_duration_sec=jump_dur,
+            jump_ratio=jump_multiplier # 傳入新的倍率參數
         )
         
         st.plotly_chart(fig1, use_container_width=True, theme=None)
