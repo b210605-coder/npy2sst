@@ -152,11 +152,10 @@ def analyze_sst_and_ridges(
     # ==========================================
     # Journal-Quality Layout Base Settings
     # ==========================================
-    # 放寬邊界限制，讓 Plotly 自動處理左右邊距（避免 colorbar 或圖例擠成一團）
     journal_layout = dict(
         template="simple_white", 
         font=dict(family="Arial", color="black", size=14),
-        margin=dict(t=80, b=50), # 只設定上方留 80px 給標題/圖例，左右交給系統自動適應
+        margin=dict(t=70, b=50), # 移除左右固定限制，上方留 70px 給標題和圖例
         uirevision='constant'
     )
     
@@ -185,7 +184,7 @@ def analyze_sst_and_ridges(
         fig_sst.add_vline(x=first_jump, line_width=2, line_dash="dash", line_color="white", opacity=0.8)
 
     fig_sst.update_layout(
-        title=dict(text='(b) SSWT Energy Heatmap', font=dict(family="Arial", size=18, color="black"), x=0, y=1.05, xanchor="left"),
+        title=dict(text='(b) SSWT Energy Heatmap', font=dict(family="Arial", size=18, color="black"), x=0, xanchor="left"), # 移除 y=1.05
         height=500,
         coloraxis=dict(
             colorscale='Viridis', 
@@ -251,7 +250,7 @@ def analyze_sst_and_ridges(
         )
 
     fig_ridge.update_layout(
-        title=dict(text='(c) SSWT Ridge Extraction', font=dict(family="Arial", size=18, color="black"), x=0, y=1.05, xanchor="left"),
+        title=dict(text='(c) SSWT Ridge Extraction', font=dict(family="Arial", size=18, color="black"), x=0, xanchor="left"), # 移除 y=1.05
         height=500, 
         legend=dict(
             orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, 
@@ -340,7 +339,7 @@ if uploaded_file is not None:
         )
 
         fig_orig.update_layout(
-            title=dict(text='(a) Original Signal', font=dict(family="Arial", size=18, color="black"), x=0, y=1.05, xanchor="left"),
+            title=dict(text='(a) Original Signal', font=dict(family="Arial", size=18, color="black"), x=0, xanchor="left"), # 移除 y=1.05
             height=250, 
             margin=dict(t=60, b=50), # 移除左右邊距限制，避免跑版
             template="simple_white"
