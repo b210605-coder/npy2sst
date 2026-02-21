@@ -83,18 +83,21 @@ def analyze_sst_and_ridges(
             ridge_y.extend(final_periods)
             ridge_z.extend(final_energies)
 
-            # --- C. 諧波躍遷偵測邏輯 (3rd > 2nd) ---
+            # --- C. 諧波躍遷偵測邏輯 (修正版) ---
             # 為了區分第幾諧波，我們需要按「週期」從大到小排序 (基頻週期最大)
             # Index 0: 基頻 (1st), Index 1: 2nd, Index 2: 3rd...
-            harmonic_sort_idx = np.argsort(final_periods)[::-1]
+            
+            # local_sort_idx 是針對 final_periods 內部的索引 (0 ~ len-1)
+            local_sort_idx = np.argsort(final_periods)[::-1]
             
             # 只有當偵測到至少 3 個明顯諧波時才進行比較
-            if len(harmonic_sort_idx) >= 3:
-                idx_2nd = harmonic_sort_idx[1] # 第二諧波的 index
-                idx_3rd = harmonic_sort_idx[2] # 第三諧波的 index
+            if len(local_sort_idx) >= 3:
+                idx_2nd = local_sort_idx[1] # 第二諧波在 final_ arrays 中的位置
+                idx_3rd = local_sort_idx[2] # 第三諧波在 final_ arrays 中的位置
                 
-                energy_2nd = final_energies[np.where(keep_indices == idx_2nd)[0][0]]
-                energy_3rd = final_energies[np.where(keep_indices == idx_3rd)[0][0]]
+                # 直接使用索引取值，不需要 np.where
+                energy_2nd = final_energies[idx_2nd]
+                energy_3rd = final_energies[idx_3rd]
 
                 # 判定條件: 第三諧波能量 > 第二諧波
                 if energy_3rd > energy_2nd:
@@ -111,7 +114,7 @@ def analyze_sst_and_ridges(
                     is_jumping = False
                     consecutive_frames = 0
             else:
-                # 諧波不足，視為中斷
+                # 諧波不足 (例如只抓到 1 或 2 個點)，視為中斷
                 if is_jumping and consecutive_frames >= required_frames:
                     jump_events.append(current_jump_start_time)
                 is_jumping = False
