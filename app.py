@@ -33,33 +33,36 @@ def load_uploaded_npy(uploaded_file):
 
 def morlet_cwt_from_period_band(data, fs, y_min, y_max, n_freqs=256):
     """
-    Compute Morlet CWT scalogram restricted exactly to [y_min, y_max] in period,
-    by constructing a log-spaced frequency grid and converting to scales.
-
+    Morlet CWT scalogram restricted to [y_min, y_max] (period),
+    with scales sorted ascending to satisfy ssqueezepy.cwt assumptions.
     Returns:
-        mag_cwt (n_freqs x n_time),
-        periods (n_freqs,)
+        mag_cwt: (n_freqs, n_time)
+        periods: (n_freqs,) increasing (good for plotting)
     """
-    # period band -> frequency band
+    from ssqueezepy import cwt as ssq_cwt_plain
+    from ssqueezepy.wavelets import Wavelet
+
     f_min = 1.0 / float(y_max)
     f_max = 1.0 / float(y_min)
 
-    # log-spaced frequencies are nicer for log-period plots
     freqs = np.logspace(np.log10(f_min), np.log10(f_max), int(n_freqs))
 
-    # Morlet center frequency
     w = Wavelet("morlet")
-    wc = float(getattr(w, "wc", np.pi * 2))  # fallback if version differs
+    wc = float(getattr(w, "wc", np.pi * 2))
 
     # scale = wc*fs / (2π f)
     scales = (wc * float(fs)) / (2 * np.pi * freqs)
 
-    Wx, _ = ssq_cwt_plain(data, wavelet="morlet", scales=scales, fs=fs)
+    # ✅ 關鍵：把 scales 排成遞增（ssqueezepy 喜歡這樣）
+    order = np.argsort(scales)          # ascending scales
+    scales_sorted = scales[order]
+    freqs_sorted = freqs[order]         # keep mapping consistent
+    periods_sorted = 1.0 / freqs_sorted # y-axis should also be consistent
+
+    Wx, _ = ssq_cwt_plain(data, wavelet="morlet", scales=scales_sorted, fs=fs)
     mag_cwt = np.abs(Wx)
 
-    periods = 1.0 / freqs
-    return mag_cwt, periods
-
+    return mag_cwt, periods_sorted
 
 # ==========================================
 # Core analysis: SSWT ridges + Transition + turn
@@ -358,7 +361,7 @@ def analyze_twocol_cwt_and_ridges(
     )
 
     # Subplot titles not glued to the top edge
-    fig.update_annotations(font=dict(size=16, family="Arial", color="black"), y=1.06)
+    fig.update_annotations(font=dict(size=16, family="Times New Roman", color="black"), y=1.06)
 
     # Axes: both log period, same range
     fig.update_xaxes(title_text="Time (s)", title_standoff=10, range=[0, total_duration], **axis_settings, row=1, col=1)
