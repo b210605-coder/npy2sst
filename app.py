@@ -288,29 +288,24 @@ def analyze_and_build_figure(
 
     # Layout: stop the text wars
     fig.update_layout(
-        template="plotly_white",
-        plot_bgcolor="white",
-        paper_bgcolor="white",
-        font=dict(family="Arial", size=12, color="black"),
-        margin=dict(t=110, b=70, l=80, r=90),
-        height=520,
-        showlegend=False,
-        coloraxis=dict(
-            colorscale="Viridis",
-            colorbar=dict(
-                title="|CWT|",
-                thickness=14,
-                len=0.82,
-                x=0.47,  # 放兩圖中間偏左
-                y=0.5,
-                outlinewidth=1,
-                outlinecolor="black",
-                tickfont=dict(size=10),
-                titlefont=dict(size=11),
-            ),
+    template="plotly_white",
+    plot_bgcolor="white",
+    paper_bgcolor="white",
+    font=dict(family="Arial", size=12, color="black"),
+    margin=dict(t=120, b=70, l=80, r=80),
+    height=520,
+    showlegend=False,
+    coloraxis=dict(
+        colorscale="Viridis",
+        colorbar=dict(
+            title="|CWT|",
+            thickness=14,
+            len=0.82,
+            x=0.47,
+            y=0.5
         ),
-    )
-
+    ),
+)
     # Subplot titles: smaller + higher, avoid collisions
     fig.update_annotations(font=dict(size=14, family="Arial", color="black"), y=1.07)
 
