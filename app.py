@@ -332,7 +332,7 @@ def analyze_and_build_figure(
     # 右圖 Y 軸：Period (s)
     fig.update_yaxes(title_text="Period (s)", type="log", range=y_range_log, **axis_settings, row=1, col=2)
 
-    return fig, transition_events, stats fig, transition_events, stats
+    return fig, transition_events, stats 
     
 # ================= Streamlit App =================
 st.set_page_config(page_title="Two-column: CWT + Ridge", layout="wide")
