@@ -88,25 +88,24 @@ def analyze_and_build_figure(
         return None, [], {}
 
     mag_sswt = np.abs(Tx)
-    mag_cwt = np.abs(Wx)
+    mag_cwt = np.abs(Wx) # 取原始 CWT 絕對值
 
     with np.errstate(divide="ignore", invalid="ignore"):
         periods_sswt = 1.0 / ssq_freqs
 
-    periods_cwt = scales_to_periods(scales, wavelet, fps)
+    # periods_cwt = scales_to_periods(scales, wavelet, fps) # 這裡不需要轉換 CWT 的 period 了
 
     time_axis = np.arange(len(data)) / fps
     total_duration = float(time_axis[-1]) if len(time_axis) else 0.0
 
-    # ---- 2) Clamp to display band using SSWT grid (target grid) ----
+    # ---- 2) Clamp to display band using SSWT grid (target grid for Ridge) ----
     valid_target = np.isfinite(periods_sswt) & (periods_sswt >= y_min) & (periods_sswt <= y_max)
     periods_plot = periods_sswt[valid_target]
 
-    # ---- 3) Interpolate CWT magnitude onto SSWT period grid so (a) is truly "broader" counterpart ----
-    mag_cwt_on_sswt = interp_cwt_to_sswt_period_grid(mag_cwt, periods_cwt, periods_sswt)
-    mag_cwt_plot = mag_cwt_on_sswt[valid_target, :]
+    # ---- 3) 取消 CWT 內插，直接保留原始 mag_cwt 與 scales 用於畫圖 ----
+    # 刪除原有的 interp_cwt_to_sswt_period_grid 步驟，因為我們要畫原始的 Scale
 
-    # ---- 4) Ridge extraction on SSWT within band ----
+    # ---- 4) Ridge extraction on SSWT within band (保持不變) ----
     valid_sswt = valid_target
     band_mag = np.where(valid_sswt[:, None], mag_sswt, 0.0)
     global_max = float(np.max(band_mag)) if band_mag.size else 0.0
@@ -208,16 +207,16 @@ def analyze_and_build_figure(
     # ---- 5) Build two-column figure with sane typography ----
     fig = make_subplots(
         rows=1, cols=2,
-        subplot_titles=("(a) CWT (Morlet, from ssq_cwt Wx)", "(b) Ridge Extraction (SSWT-based)"),
+        subplot_titles=("(a) Wavelet Transform Scalogram", "(b) Ridge Extraction (SSWT-based)"),
         horizontal_spacing=0.18,
     )
 
-    # Left: CWT heatmap (on SSWT period grid for apples-to-apples)
+    # ✅ 修改：左圖 CWT 改畫原始的 Scale，而不是 Period
     fig.add_trace(
         go.Heatmap(
-            z=mag_cwt_plot,
+            z=mag_cwt,            # 使用原始 CWT 振幅矩陣
             x=time_axis,
-            y=periods_plot,
+            y=scales,             # Y 軸改用原始 scales 陣列
             coloraxis="coloraxis",
             name="CWT",
         ),
@@ -247,8 +246,8 @@ def analyze_and_build_figure(
                     color=d["z"],
                     cmin=zmin,
                     cmax=zmax if zmax > zmin else (zmin + 1.0),
-                    colorscale="Viridis",
-                    showscale=False,   # ✅ 不要再擠一個色條出來
+                    colorscale="Viridis", # 右圖維持 Viridis 點點顏色
+                    showscale=False,
                     line=dict(width=0.5, color="black") if k == 1 else None,
                 ),
                 name=labels[k],
@@ -262,14 +261,6 @@ def analyze_and_build_figure(
         t0 = float(transition_events[0])
         fig.add_vline(x=t0, line_width=1.5, line_dash="dash", line_color="black", row=1, col=1)
         fig.add_vline(x=t0, line_width=1.5, line_dash="dash", line_color="black", row=1, col=2)
-        fig.add_annotation(
-            x=t0, y=y_max,
-            xref="x2", yref="y2",
-            text="Transition",
-            showarrow=False,
-            yshift=16,
-            font=dict(family="Arial", size=11, color="black"),
-        )
 
     # Turn marker on right panel
     if stats["turn_t"] is not None and stats["turn_p"] is not None:
@@ -288,24 +279,24 @@ def analyze_and_build_figure(
 
     # Layout: stop the text wars
     fig.update_layout(
-    template="plotly_white",
-    plot_bgcolor="white",
-    paper_bgcolor="white",
-    font=dict(family="Arial", size=12, color="black"),
-    margin=dict(t=120, b=70, l=80, r=80),
-    height=520,
-    showlegend=False,
-    coloraxis=dict(
-        colorscale="Viridis",
-        colorbar=dict(
-            title="|CWT|",
-            thickness=14,
-            len=0.82,
-            x=0.47,
-            y=0.5
+        template="plotly_white",
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        font=dict(family="Arial", size=12, color="black"),
+        margin=dict(t=120, b=70, l=80, r=80),
+        height=520,
+        showlegend=False,
+        coloraxis=dict(
+            colorscale="jet",  # ✅ 修改：將整體 CWT 熱力圖色階改為傳統的彩虹色(jet)
+            colorbar=dict(
+                title="Magnitude",
+                thickness=14,
+                len=0.82,
+                x=0.47,
+                y=0.5
+            ),
         ),
-    ),
-)
+    )
     # Subplot titles: smaller + higher, avoid collisions
     fig.update_annotations(font=dict(size=14, family="Arial", color="black"), y=1.07)
 
@@ -315,15 +306,18 @@ def analyze_and_build_figure(
         showgrid=False, zeroline=False,
     )
 
-    y_range = [np.log10(y_min), np.log10(y_max)]
-
     fig.update_xaxes(title_text="Time (s)", title_standoff=10, range=[0, total_duration], **axis_settings, row=1, col=1)
     fig.update_xaxes(title_text="Time (s)", title_standoff=10, range=[0, total_duration], **axis_settings, row=1, col=2)
-    fig.update_yaxes(title_text="Period (s)", title_standoff=12, type="log", range=y_range, **axis_settings, row=1, col=1)
+    
+    # ✅ 修改：左圖(CWT) Y軸改成「線性 (linear)」並顯示 Scale
+    scale_min, scale_max = np.min(scales), np.max(scales)
+    fig.update_yaxes(title_text="Scale (Inverse of Frequency)", title_standoff=12, type="linear", range=[scale_min, scale_max], **axis_settings, row=1, col=1)
+    
+    # ✅ 修改：右圖(Ridge) Y軸保持原本的「對數 (log)」與 Period 設定
+    y_range = [np.log10(y_min), np.log10(y_max)]
     fig.update_yaxes(title_text="Period (s)", title_standoff=12, type="log", range=y_range, **axis_settings, row=1, col=2)
 
     return fig, transition_events, stats
-
 
 # ================= Streamlit App =================
 st.set_page_config(page_title="Two-column: CWT + Ridge", layout="wide")
